@@ -111,7 +111,7 @@ export default function AdminDashboard() {
                   cy="50%"
                   outerRadius={80}
                   dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
                 >
                   {anomalyTypes.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
