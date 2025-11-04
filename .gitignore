@@ -16,3 +16,7 @@ dist/
 # system
 .DS_Store
 Thumbs.db
+
+# Python virtual environment
+venv/
+__pycache__/

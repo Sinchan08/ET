@@ -1,37 +1,62 @@
-// app/api/auth/login/route.ts
-
 import { NextResponse } from 'next/server';
-import db from '@/lib/db'; // Import our database utility
+import db from '@/lib/db';
+import bcrypt from 'bcryptjs';
 
-// This function handles POST requests to /api/auth/login
 export async function POST(request: Request) {
-  console.log("DATABASE_URL being used:", process.env.DATABASE_URL);
   try {
-    const { email, password } = await request.json();
+    const body = await request.json();
+    const { email, password, role } = body;
 
-    // This is the SQL query to find a user with the matching email and password
-    const query = 'SELECT id, email, name, role FROM users WHERE email = $1 AND password = $2';
-    const values = [email, password];
+    // --- START OF NEW DEBUG CODE ---
+    // Let's check each field one by one.
+    if (!email) {
+      return NextResponse.json({ error: 'Server received an EMPTY EMAIL field.' }, { status: 400 });
+    }
+    if (!password) {
+      return NextResponse.json({ error: 'Server received an EMPTY PASSWORD field.' }, { status: 400 });
+    }
+    if (!role) {
+      return NextResponse.json({ error: 'Server received an EMPTY ROLE field.' }, { status: 400 });
+    }
+    // --- END OF NEW DEBUG CODE ---
 
-    // We execute the query
+    console.log(`DATABASE_URL being used: ${process.env.DATABASE_URL}`);
+
+    // 1. Find the user by EMAIL ONLY first.
+    const query = 'SELECT * FROM users WHERE email = $1';
+    const values = [email];
     const { rows } = await db.query(query, values);
 
-    // If we find a user (rows.length > 0), the login is successful
-    if (rows.length > 0) {
-      const user = rows[0];
-      
-      // NOTE: In a real app, you would generate a secure JWT token here.
-      // For now, we'll keep the mock token logic to keep things simple.
-      const token = `mock_jwt_token_${user.id}_${Date.now()}`;
-      
-      return NextResponse.json({
-        token,
-        user,
-      });
-    } else {
-      // If no user is found, return an error
-      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    // 2. Check if a user with that email even exists.
+    if (rows.length === 0) {
+      return NextResponse.json({ error: 'Invalid credentials. Please try again.' }, { status: 401 });
     }
+
+    const user = rows[0];
+
+    // 3. NOW check if the role from the toggle matches the user's role.
+    if (user.role !== role) {
+      return NextResponse.json({ error: `This is a ${user.role} account. Please use the '${user.role}' toggle to log in.` }, { status: 403 });
+    }
+
+    // 4. If email and role are correct, check the password.
+    const passwordsMatch = await bcrypt.compare(password, user.password);
+
+    if (!passwordsMatch) {
+      return NextResponse.json({ error: 'Invalid credentials. Please try again.' }, { status: 401 });
+    }
+
+    // If login is successful
+    return NextResponse.json({
+      message: 'Login successful',
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
+    }, { status: 200 });
+
   } catch (error) {
     console.error('Login API Error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

@@ -29,7 +29,7 @@ export default function AuthPage() {
     setError('');
 
     try {
-      const success = await login(email, password);
+      const success = await login(email, password, activeRole);
       if (success) {
         toast({ title: "Login successful" });
         router.push(activeRole === "user" ? "/user" : "/admin");

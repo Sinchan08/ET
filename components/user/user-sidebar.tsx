@@ -15,6 +15,7 @@ import {
 import { BarChart3, FileText, Zap, User, Settings, Home } from 'lucide-react'
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { SheetTitle } from "@/components/ui/sheet"; // This import is correct
 
 const userMenuItems = [
   {
@@ -50,6 +51,9 @@ export function UserSidebar() {
   return (
     <Sidebar>
       <SidebarHeader>
+        {/* THIS IS THE FIX: It now lives inside the Header */}
+        <SheetTitle className="sr-only">User Navigation Menu</SheetTitle>
+        
         <div className="flex items-center gap-2 px-4 py-2">
           <Zap className="h-8 w-8 text-blue-600" />
           <div>

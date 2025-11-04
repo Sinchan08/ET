@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { createContext, useContext, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 
@@ -14,7 +13,8 @@ interface User {
 
 interface AuthContextType {
   user: User | null
-  login: (email: string, password: string) => Promise<boolean>
+  // --- FIX 1: Added 'role' to the function's type definition ---
+  login: (email: string, password: string, role: "user" | "admin") => Promise<boolean>
   logout: () => void
   loading: boolean
 }
@@ -37,24 +37,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(false)
   }, [])
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  // --- FIX 2: Added 'role' as an argument to the function ---
+  const login = async (email: string, password: string, role: "user" | "admin"): Promise<boolean> => {
+    setLoading(true); // Added this to manage loading state
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        // --- FIX 3: Added 'role' to the body of the request ---
+        body: JSON.stringify({ email, password, role }),
       })
 
       if (response.ok) {
         const data = await response.json()
-        localStorage.setItem("auth_token", data.token)
+        
+        // This assumes your login API returns a 'user' object and not a 'token'
+        // based on our previous API code.
         localStorage.setItem("user_data", JSON.stringify(data.user))
         setUser(data.user)
+
+        setLoading(false); // Stop loading
         return true
       }
+      setLoading(false); // Stop loading
       return false
     } catch (error) {
       console.error("Login error:", error)
+      setLoading(false); // Stop loading
       return false
     }
   }
@@ -64,7 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
      * Clears local session and returns user to the role selection landing page.
      * No authentication is enforced in the current build.
      */
-    localStorage.removeItem("auth_token")
+    localStorage.removeItem("auth_token") // Keep these just in case
     localStorage.removeItem("user_data")
     setUser(null)
     router.push("/auth")
