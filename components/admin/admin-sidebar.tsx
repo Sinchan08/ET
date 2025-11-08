@@ -22,6 +22,7 @@ const adminMenuItems = [
   { title: "Dashboard", url: "/admin/dashboard", icon: BarChart3 },
   { title: "Data Upload", url: "/admin/data-upload", icon: Upload },
   { title: "Predictions", url: "/admin/predictions", icon: Brain },
+  { title: "Complaints", url: "/admin/complaints", icon: FileText },
   { title: "Analytics", url: "/admin/analytics", icon: BarChart3 },
   { title: "Anomaly Reports", url: "/admin/anomalies", icon: FileText },
   { title: "Model Training", url: "/admin/training", icon: RefreshCw },

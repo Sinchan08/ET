@@ -1,102 +1,92 @@
-# ml-service/ml_api.py
-
-from flask import Flask, request, jsonify
+# FILE: ml-service/ml_api.py
 import pandas as pd
 import numpy as np
 import pickle
-import xgboost # Required for pickle to load the model
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Load the trained XGBoost model
+# Load your model
 try:
     with open('electricity_theft_detector_xgb.pkl', 'rb') as f:
         model = pickle.load(f)
     print("✅ Model loaded successfully.")
-except FileNotFoundError:
+except Exception as e:
+    print(f"❌ Error loading model: {e}")
     model = None
-    print("❌ ERROR: Model file not found! Make sure 'electricity_theft_detector_xgb.pkl' is in the 'ml-service' folder.")
 
-# This function replicates the feature engineering from your training scripts
-def engineer_features_for_prediction(df):
-    # Ensure data types are correct
-    df['Consumption'] = pd.to_numeric(df['consumption'], errors='coerce').fillna(0)
-    df['Voltage'] = pd.to_numeric(df['voltage'], errors='coerce')
-    df['Current'] = pd.to_numeric(df.get('current', 0), errors='coerce') # Handle optional 'current'
-    df['Power Factor'] = pd.to_numeric(df.get('power_factor', 1.0), errors='coerce')
-    df['Billing Amount'] = pd.to_numeric(df.get('billing_amount', df['Consumption'] * 5), errors='coerce') # Estimate if missing
-    df['Total'] = pd.to_numeric(df.get('total', df['Billing Amount']), errors='coerce')
-    
-    # Fill missing Voltage with the median
-    df['Voltage'] = df['Voltage'].fillna(df['Voltage'].median())
+# This is the list of 13 features your model expects
+MODEL_FEATURES = [
+    'Consumption', 'Voltage', 'Current', 'Power Factor', 
+    'Bill_to_usage_ratio', 'delta_units', 'rolling_avg', 
+    'rolling_min', 'rolling_max', 'rolling_std', 
+    'interaction_billing_pf', 'month_sin', 'month_cos'
+]
 
-    # Create date features
-    df['date'] = pd.to_datetime(df['date'])
-    df = df.sort_values(by=['rrno', 'date'])
-    
-    # --- Start Feature Engineering ---
-    df['month_sin'] = np.sin(2 * np.pi * df['date'].dt.month / 12)
-    df['month_cos'] = np.cos(2 * np.pi * df['date'].dt.month / 12)
-    
-    # Interaction features
-    df['Bill_to_usage_ratio'] = (df['Total'] / df['Consumption']).replace([np.inf, -np.inf], 0).fillna(0)
-    df['interaction_billing_pf'] = df['Billing Amount'] * df['Power Factor']
-
-    # Group by RRNO to calculate rolling stats and diffs
-    all_groups = []
-    for rrno, group in df.groupby('rrno'):
-        group = group.copy()
-        group['rolling_avg'] = group['Consumption'].rolling(3, min_periods=1).mean()
-        group['rolling_min'] = group['Consumption'].rolling(3, min_periods=1).min()
-        group['rolling_max'] = group['Consumption'].rolling(3, min_periods=1).max()
-        group['rolling_std'] = group['Consumption'].rolling(3, min_periods=1).std().fillna(0)
-        group['delta_units'] = group['Consumption'].diff().fillna(0)
-        all_groups.append(group)
-        
-    if not all_groups:
-        return pd.DataFrame() # Return empty if no data
-
-    processed_df = pd.concat(all_groups)
-    return processed_df
-
-@app.route("/predict", methods=['POST'])
+@app.route('/predict', methods=['POST'])
 def predict():
     if model is None:
-        return jsonify({"error": "Model not loaded"}), 500
+        return jsonify({'error': 'Model is not loaded'}), 500
 
-    data = request.get_json()
-    df = pd.DataFrame(data)
+    try:
+        data = request.json
+        df = pd.DataFrame(data)
+        
+        # Keep track of original IDs to send back
+        original_ids = df['id']
 
-    # Apply the feature engineering
-    processed_df = engineer_features_for_prediction(df)
+        # Rename database columns (lowercase) to match model features (TitleCase)
+        column_mapping = {
+            'consumption': 'Consumption',
+            'voltage': 'Voltage',
+            'current': 'Current',
+            'power_factor': 'Power Factor',
+            'bill_to_usage_ratio': 'Bill_to_usage_ratio',
+            'delta_units': 'delta_units',
+            'rolling_avg': 'rolling_avg',
+            'rolling_min': 'rolling_min',
+            'rolling_max': 'rolling_max',
+            'rolling_std': 'rolling_std',
+            'interaction_billing_pf': 'interaction_billing_pf',
+            'month_sin': 'month_sin',
+            'month_cos': 'month_cos'
+        }
+        
+        df_renamed = df.rename(columns=column_mapping)
+        
+        # Select only the features the model needs, in the correct order
+        processed_df = df_renamed[MODEL_FEATURES]
+        
+        processed_df = processed_df.apply(pd.to_numeric, errors='coerce').fillna(0)
 
-    if processed_df.empty:
-        return jsonify({"predictions": []})
+        # Make predictions
+        predictions = model.predict(processed_df)
+        probabilities = model.predict_proba(processed_df)[:, 1] # Get probability of "theft"
 
-    # The final list of features MUST match the list used during training
-    final_features = [
-        'Consumption', 'Voltage', 'Current', 'Power Factor', 'Bill_to_usage_ratio',
-        'delta_units', 'rolling_avg', 'rolling_min', 'rolling_max', 'rolling_std',
-        'interaction_billing_pf', 'month_sin', 'month_cos'
-    ]
-
-    # Ensure all required columns exist, fill missing with 0
-    for col in final_features:
-        if col not in processed_df.columns:
-            processed_df[col] = 0
+        # Format the response
+        results = []
+        for i, (pred, prob) in enumerate(zip(predictions, probabilities)):
             
-    X_predict = processed_df[final_features]
+            # --- THIS IS THE 3-LINE FIX ---
+            # We must convert the NumPy types to standard Python types
+            # The 'int64' error is from the 'id'
+            
+            result = {
+                'id': int(original_ids.iloc[i]), # Cast numpy.int64 to standard int()
+                'is_anomaly': bool(pred),        # Cast numpy.bool_ to standard bool()
+                'confidence': float(prob)      # Cast numpy.float64 to standard float()
+            }
+            results.append(result)
 
-    # Make predictions
-    predictions = model.predict(X_predict)
-    probabilities = model.predict_proba(X_predict)[:, 1] # Probability of being an anomaly
+        return jsonify(results)
 
-    # Add results back to the original data's index
-    processed_df['is_anomaly'] = [bool(p) for p in predictions]
-    processed_df['confidence'] = [float(p) for p in probabilities]
-    
-    # Return the results in a JSON format
-    return jsonify({"predictions": processed_df.to_dict(orient='records')})
+    except KeyError as e:
+        print(f"KeyError: {e}")
+        return jsonify({'error': f"Column mismatch. Missing: {e}"}), 400
+    except Exception as e:
+        print(f"Prediction Error: {e}")
+        # This will now correctly report the error
+        return jsonify({'error': f"An error occurred during prediction: {str(e)}"}), 500
 
 if __name__ == '__main__':
-    app.run(port=5001, debug=True)
+    app.run(debug=True, port=5001)

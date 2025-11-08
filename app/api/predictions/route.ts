@@ -1,95 +1,77 @@
-/*import { type NextRequest, NextResponse } from "next/server"
+// FILE: app/api/predictions/route.ts
+import { NextResponse } from 'next/server';
+import db from '@/lib/db';
 
-export async function POST(request: NextRequest) {
+// This GET function is correct and stays the same.
+export async function GET() {
   try {
-    const data = await request.json()
-
-    // Mock ML model prediction
-    // In a real implementation, you would:
-    // 1. Load the XGBoost model from electricity_theft_detector_xgb.pkl
-    // 2. Preprocess the input data
-    // 3. Run predictions
-    // 4. Return results with confidence scores
-
-    const predictions = data.map((record: any, index: number) => {
-      const isAnomaly = Math.random() > 0.7 // Mock prediction
-      const confidence = Math.random() * 0.3 + 0.7 // Mock confidence
-
-      return {
-        ...record,
-        is_anomaly: isAnomaly ? 1 : 0,
-        confidence: confidence,
-        anomaly_type: isAnomaly
-          ? ["Consumption Spike", "Voltage Anomaly", "Power Factor Issue"][Math.floor(Math.random() * 3)]
-          : "Normal",
-        risk_level: isAnomaly ? ["low", "medium", "high"][Math.floor(Math.random() * 3)] : "low",
-      }
-    })
-
-    return NextResponse.json({
-      success: true,
-      predictions,
-      summary: {
-        total: predictions.length,
-        anomalies: predictions.filter((p: any) => p.is_anomaly === 1).length,
-        normal: predictions.filter((p: any) => p.is_anomaly === 0).length,
-      },
-    })
+    const { rows } = await db.query('SELECT * FROM data_records ORDER BY record_date DESC');
+    return NextResponse.json(rows);
   } catch (error) {
-    return NextResponse.json({ error: "Prediction failed" }, { status: 500 })
+    console.error('API Error fetching records:', error);
+    return NextResponse.json({ error: 'Failed to fetch records' }, { status: 500 });
   }
 }
-*/
 
-// app/api/predictions/route.ts
-
-import { NextResponse } from 'next/server';
-import db from '@/lib/db'; // Import our database utility
-
+// --- THIS IS THE FIXED POST FUNCTION ---
 export async function POST(request: Request) {
   try {
-    // 1. Get the records from the frontend/database that we need to predict
-    const dataToPredict = await request.json();
     
+    // We select all the feature columns our model needs
+    const { rows: dataToPredict } = await db.query(
+      `SELECT 
+        id, "Consumption", "Voltage", "Current", "Power Factor", 
+        "Bill_to_usage_ratio", "delta_units", "rolling_avg", "rolling_min", 
+        "rolling_max", "rolling_std", "interaction_billing_pf", "month_sin", "month_cos"
+       FROM data_records 
+       WHERE is_anomaly = FALSE`
+    );
+
     if (!dataToPredict || dataToPredict.length === 0) {
-      return NextResponse.json({ error: 'No data provided for prediction' }, { status: 400 });
+      return NextResponse.json({ error: 'No new data to predict.' }, { status: 400 });
     }
 
-    // 2. Call the Python Flask ML service
-    const mlResponse = await fetch('http://127.0.0.1:5001/predict', {
+    // 2. Call ML Service
+    const mlResponse = await fetch(`${process.env.ML_SERVICE_URL}/predict`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dataToPredict),
     });
 
     if (!mlResponse.ok) {
-      // If the ML service gives an error, we send it back
-      const errorBody = await mlResponse.json();
-      throw new Error(errorBody.error || 'ML service failed');
+      const errorText = await mlResponse.text();
+      console.error("ML Service Error:", errorText);
+      throw new Error(`ML service failed: ${errorText}`);
     }
 
-    const { predictions } = await mlResponse.json();
+    const predictions = await mlResponse.json();
 
-    // 3. Save the prediction results back into our PostgreSQL database
-    for (const p of predictions) {
-      const query = `
-        UPDATE data_records
-        SET is_anomaly = $1, confidence = $2, anomaly_type = $3
-        WHERE id = $4;
-      `;
-      
-      // Basic logic to determine anomaly type from the prediction
-      const anomaly_type = p.is_anomaly ? 'Predicted Anomaly' : 'Normal';
-
-      await db.query(query, [p.is_anomaly, p.confidence, anomaly_type, p.id]);
-    }
+    // 3. FIX: Update the database using db.query() directly
+    let anomalies_found = 0;
     
-    // 4. Send the predictions back to the frontend to display
-    return NextResponse.json({ predictions });
+    const updatePromises = predictions.map((prediction: any) => {
+      if (prediction.is_anomaly) {
+        anomalies_found++;
+      }
+      return db.query(
+        'UPDATE data_records SET is_anomaly = $1, confidence = $2 WHERE id = $3',
+        [prediction.is_anomaly, prediction.confidence, prediction.id]
+      );
+    });
+
+    await Promise.all(updatePromises);
+
+    return NextResponse.json({
+      message: 'Prediction successful',
+      total_records: dataToPredict.length,
+      anomalies_found: anomalies_found,
+    });
 
   } catch (error) {
     console.error('Prediction API Error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    if (error instanceof Error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

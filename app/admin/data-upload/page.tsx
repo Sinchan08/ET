@@ -1,212 +1,132 @@
+// FILE: app/admin/data-upload/page.tsx
 "use client"
 
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Database } from 'lucide-react'
-import Papa from "papaparse"
-import * as XLSX from "xlsx"
+import { Upload, File } from 'lucide-react'
 import { useToast } from "@/hooks/use-toast"
+import Papa from 'papaparse'
 
-type Row = Record<string, any>
-
-const REQUIRED_COLUMNS = ["RRNO", "date"]
+interface CsvData {
+  RRNO: string; // From TestingSet.csv
+  date: string; // From TestingSet.csv
+  [key: string]: any; 
+}
 
 export default function DataUploadPage() {
+  const [file, setFile] = useState<File | null>(null)
+  const [fileName, setFileName] = useState<string>('')
+  const [loading, setLoading] = useState(false)
   const { toast } = useToast()
-  const [rows, setRows] = useState<Row[]>([])
-  const [headers, setHeaders] = useState<string[]>([])
-  const [valid, setValid] = useState<boolean | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [fileName, setFileName] = useState<string>("")
-  const inputRef = useRef<HTMLInputElement>(null)
 
-  const onDrop = useCallback(async (file: File) => {
-    setFileName(file.name)
-    const ext = file.name.toLowerCase().split(".").pop()
-    try {
-      if (ext === "csv") {
-        const text = await file.text()
-        const result = Papa.parse<Row>(text, { header: true, skipEmptyLines: true })
-        const rowsParsed = result.data.filter(Boolean)
-        setRows(rowsParsed)
-        setHeaders(result.meta.fields || [])
-      } else if (ext === "xlsx" || ext === "xls") {
-        const data = await file.arrayBuffer()
-        const workbook = XLSX.read(data)
-        const wsName = workbook.SheetNames[0]
-        const ws = workbook.Sheets[wsName]
-        const json: Row[] = XLSX.utils.sheet_to_json(ws, { defval: "" })
-        setRows(json)
-        setHeaders(Object.keys(json[0] || {}))
-      } else {
-        throw new Error("Unsupported file type. Please upload .csv or .xlsx")
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files && event.target.files.length > 0) {
+      const selectedFile = event.target.files[0]
+      setFile(selectedFile)
+      setFileName(selectedFile.name)
+    }
+  }
+
+  const handleUpload = () => {
+    if (!file) {
+      toast({ title: "Error", description: "Please select a file.", variant: "destructive" })
+      return
+    }
+    setLoading(true)
+
+    Papa.parse<CsvData>(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        
+        // This filter is now correct for your TestingSet.csv file
+        const jsonData = results.data.filter(row => row.RRNO && row.RRNO.trim() !== '');
+
+        if (jsonData.length === 0) {
+          toast({ title: "Error", description: "The CSV file is empty or contains no valid data.", variant: "destructive" })
+          setLoading(false)
+          return;
+        }
+
+        try {
+          // This API expects the body to be a RAW ARRAY
+          const response = await fetch('/api/admin/datasets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(jsonData), 
+          })
+
+          const result = await response.json()
+          if (!response.ok) {
+            throw new Error(result.error || 'Failed to upload data')
+          }
+
+          toast({
+            title: "Success!",
+            description: `${result.count} records have been successfully uploaded.`,
+            variant: "default",
+          })
+          setFile(null)
+          setFileName('')
+
+        } catch (error: any) {
+          toast({ title: "Upload Failed", description: error.message, variant: "destructive" })
+        } finally {
+          setLoading(false)
+        }
+      },
+      error: (error: any) => {
+        setLoading(false)
+        toast({ title: "Parsing Error", description: "Failed to read the CSV file.", variant: "destructive" })
       }
-      toast({ title: "File parsed", description: "Preview generated." })
-    } catch (e: any) {
-      console.error(e)
-      toast({ title: "Parse failed", description: e.message || "Unable to parse file", variant: "destructive" })
-      setRows([])
-      setHeaders([])
-    }
-  }, [toast])
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) onDrop(file)
-  }
-
-  const missingColumns = useMemo(
-    () => REQUIRED_COLUMNS.filter((c) => !headers.map((h) => h.toLowerCase()).includes(c.toLowerCase())),
-    [headers]
-  )
-
-  const validate = () => {
-    if (rows.length === 0) {
-      setValid(false)
-      return
-    }
-    const hasRequired = missingColumns.length === 0
-    setValid(hasRequired)
-    if (hasRequired) {
-      toast({ title: "Validation passed", description: "Required fields present." })
-    } else {
-      toast({
-        title: "Validation failed",
-        description: `Missing: ${missingColumns.join(", ")}`,
-        variant: "destructive",
-      })
-    }
-  }
-
-  const saveToDatabase = async () => {
-    if (!valid) {
-      toast({ title: "Validate first", description: "Please validate before saving.", variant: "destructive" })
-      return
-    }
-    setSaving(true)
-    try {
-      const res = await fetch("/api/admin/datasets", {
-        method: "POST",
-        body: JSON.stringify({ name: fileName || "dataset.csv", rows }),
-        headers: { "Content-Type": "application/json" },
-      })
-      if (!res.ok) throw new Error("Failed to save dataset")
-      const data = await res.json()
-      toast({
-        title: "Saved",
-        description: `Saved ${data.count} records as ${data.dataset?.name}`,
-      })
-      setRows([])
-      setHeaders([])
-      setFileName("")
-      setValid(null)
-    } catch (e: any) {
-      toast({ title: "Save failed", description: e.message || "Error while saving", variant: "destructive" })
-    } finally {
-      setSaving(false)
-    }
+    })
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Data Upload</h1>
-        <p className="text-muted-foreground">Upload .csv/.xlsx datasets, validate, preview and save.</p>
-      </div>
-
+    <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5" />
-            Upload Dataset
-          </CardTitle>
-          <CardDescription>Supports .csv and .xlsx files</CardDescription>
+          <CardTitle>Upload Consumer Data</CardTitle>
+          <CardDescription>Upload a CSV file containing consumer electricity usage data.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault()
-              const f = e.dataTransfer.files?.[0]
-              if (f) onDrop(f)
-            }}
-            className="border-2 border-dashed rounded-md p-8 text-center hover:bg-muted/30 transition-colors"
-          >
-            <FileSpreadsheet className="h-10 w-10 mx-auto mb-2 text-muted-foreground" />
-            <p className="mb-2">Drag & drop your file here</p>
-            <p className="text-sm text-muted-foreground mb-4">or</p>
-            <Button variant="outline" onClick={() => inputRef.current?.click()}>
-              Choose File
-            </Button>
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            {fileName && <p className="mt-3 text-sm">Selected: {fileName}</p>}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={validate} disabled={!rows.length}>
-              Validate Fields
-            </Button>
-            <Button onClick={saveToDatabase} disabled={!rows.length || !valid || saving}>
-              <Database className="h-4 w-4 mr-2" />
-              {saving ? "Saving..." : "Save to Database"}
-            </Button>
-            {valid === true && (
-              <Badge className="bg-green-100 text-green-800">
-                <CheckCircle2 className="h-3 w-3 mr-1" />
-                Valid
-              </Badge>
-            )}
-            {valid === false && (
-              <Badge variant="destructive">
-                <AlertTriangle className="h-3 w-3 mr-1" />
-                Invalid
-              </Badge>
-            )}
-          </div>
-
-          {missingColumns.length > 0 && rows.length > 0 && (
-            <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>Missing required: {missingColumns.join(", ")}</AlertDescription>
-            </Alert>
-          )}
-
-          {rows.length > 0 && (
-            <div className="mt-4 overflow-auto border rounded-md">
-              <table className="min-w-[700px] w-full text-sm">
-                <thead className="bg-muted/50">
-                  <tr>
-                    {headers.map((h) => (
-                      <th key={h} className="px-3 py-2 text-left font-medium">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.slice(0, 25).map((r, i) => (
-                    <tr key={i} className="border-t">
-                      {headers.map((h) => (
-                        <td key={h} className="px-3 py-2">{String(r[h] ?? "")}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="text-xs text-muted-foreground p-2">
-                Showing {Math.min(25, rows.length)} of {rows.length} rows
-              </div>
+        <CardContent>
+          {/* ... Your JSX for the upload form ... (no changes here) */}
+          <div className="grid gap-6">
+            <div className="grid w-full max-w-sm items-center gap-2">
+              <Label htmlFor="csv-upload" className="font-semibold">Select CSV File</Label>
+              <Input
+                id="csv-upload"
+                type="file"
+                accept=".csv"
+                onChange={handleFileChange}
+                className="file:text-sm file:font-medium"
+              />
             </div>
-          )}
+            {fileName && (
+              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                <File className="h-4 w-4" />
+                <span>{fileName}</span>
+              </div>
+            )}
+            <Button onClick={handleUpload} disabled={loading || !file} className="w-full max-w-sm">
+              {loading ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" /> Upload Data
+                </>
+              )}
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

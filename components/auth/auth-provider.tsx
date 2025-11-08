@@ -9,11 +9,11 @@ interface User {
   email: string
   name: string
   role: "user" | "admin"
+  rrno?: string; // <-- ADD THIS LINE (it's optional, for admins)
 }
 
 interface AuthContextType {
   user: User | null
-  // --- FIX 1: Added 'role' to the function's type definition ---
   login: (email: string, password: string, role: "user" | "admin") => Promise<boolean>
   logout: () => void
   loading: boolean
@@ -28,10 +28,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Check for existing session
-    const token = localStorage.getItem("auth_token")
+    // const token = localStorage.getItem("auth_token") // We are not using tokens, so we remove this
     const userData = localStorage.getItem("user_data")
 
-    if (token && userData) {
+    if (userData) { // <-- THIS IS THE FIX
       setUser(JSON.parse(userData))
     }
     setLoading(false)

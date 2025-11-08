@@ -48,14 +48,9 @@ export async function POST(request: Request) {
 
     // If login is successful
     return NextResponse.json({
-      message: 'Login successful',
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-      },
-    }, { status: 200 });
+     message: 'Login successful',
+     user: user, // <-- This now includes all fields (id, email, name, role, rrno, etc.)
+   }, { status: 200 });
 
   } catch (error) {
     console.error('Login API Error:', error);

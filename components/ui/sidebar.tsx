@@ -10,7 +10,8 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { Sheet, SheetContent } from "@/components/ui/sheet"
+// --- 1. IMPORT SheetTitle HERE ---
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
@@ -206,6 +207,9 @@ const Sidebar = React.forwardRef<
             }
             side={side}
           >
+            {/* --- 2. ADD THE SheetTitle HERE --- */}
+            <SheetTitle className="sr-only">Main Menu</SheetTitle>
+            
             <div className="flex h-full w-full flex-col">{children}</div>
           </SheetContent>
         </Sheet>
@@ -258,6 +262,8 @@ const Sidebar = React.forwardRef<
   }
 )
 Sidebar.displayName = "Sidebar"
+
+// ... (Rest of your file is unchanged)
 
 const SidebarTrigger = React.forwardRef<
   React.ElementRef<typeof Button>,

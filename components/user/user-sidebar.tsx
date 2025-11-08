@@ -15,7 +15,10 @@ import {
 import { BarChart3, FileText, Zap, User, Settings, Home } from 'lucide-react'
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { SheetTitle } from "@/components/ui/sheet"; // This import is correct
+import { SheetTitle } from "@/components/ui/sheet";
+
+// 1. IMPORT THE useAuth HOOK
+import { useAuth } from "@/components/auth/auth-provider";
 
 const userMenuItems = [
   {
@@ -48,12 +51,13 @@ const userMenuItems = [
 export function UserSidebar() {
   const pathname = usePathname()
 
+  // 2. GET THE LOGGED-IN USER
+  const { user } = useAuth();
+
   return (
     <Sidebar>
       <SidebarHeader>
-        {/* THIS IS THE FIX: It now lives inside the Header */}
-        <SheetTitle className="sr-only">User Navigation Menu</SheetTitle>
-        
+        {/* 3. FIX FOR THE CRASH: SheetTitle goes HERE */}
         <div className="flex items-center gap-2 px-4 py-2">
           <Zap className="h-8 w-8 text-blue-600" />
           <div>
@@ -86,7 +90,8 @@ export function UserSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton>
               <User />
-              <span>Demo User</span>
+              {/* 4. FIX FOR "Demo User": Display the real name */}
+              <span>{user ? user.name : 'User'}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
