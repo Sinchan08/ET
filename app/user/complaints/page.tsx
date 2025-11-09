@@ -26,7 +26,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { AlertCircle, CheckCircle } from "lucide-react"
-import { useAuth } from "@/components/auth/auth-provider" // 1. Import useAuth
+import { useAuth } from "@/components/auth/auth-provider" // We now use this
 
 // Define the complaint structure
 interface Complaint {
@@ -43,7 +43,7 @@ export default function ComplaintsPage() {
   const [complaints, setComplaints] = useState<Complaint[]>([])
   const [loading, setLoading] = useState(true)
   const { toast } = useToast()
-  const { user } = useAuth() // 2. Get the logged-in user
+  const { user } = useAuth() // Get the logged-in user
 
   // Function to fetch this user's complaints
   const fetchComplaints = async () => {
@@ -51,8 +51,8 @@ export default function ComplaintsPage() {
     
     setLoading(true);
     try {
-      // We will create this API endpoint in the next step
-      const response = await fetch(`/api/user/complaints`); 
+      // This API will fetch complaints for the logged-in user
+      const response = await fetch(`/api/user/${user.id}/complaints`); 
       if (!response.ok) {
         throw new Error('Failed to fetch complaints');
       }
@@ -77,13 +77,14 @@ export default function ComplaintsPage() {
       return;
     }
     
-    // 3. Check if user is logged in
-    if (!user || !user.RRNo) { 
-      toast({ title: "Error", description: "You must be logged in to file a complaint.", variant: "destructive" });
+    // Check if user is logged in AND has an rrno
+    if (!user || !user.rrno) { 
+      toast({ title: "Error", description: "User data is missing. Please log in again.", variant: "destructive" });
       return;
     }
 
     try {
+      // We send this to the main /api/complaints API, which we already built
       const response = await fetch('/api/complaints', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -91,8 +92,8 @@ export default function ComplaintsPage() {
           subject,
           description,
           type: "Billing", // This can be a dropdown later
-          rrno: user.rrno, // 4. Use the real rrno
-          userId: user.id  // 5. Use the real userId
+          rrno: user.rrno, // Use the real rrno from our fixed user object
+          userId: user.id  // Use the real userId from our fixed user object
         }),
       });
 

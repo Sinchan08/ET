@@ -1,168 +1,133 @@
+// FILE: app/user/page.tsx
+
 "use client"
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Zap, FileText, Calendar, CheckCircle, AlertTriangle, TrendingUp } from 'lucide-react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import Link from "next/link"
+import { useState, useEffect } from "react"
+import { useAuth } from "@/components/auth/auth-provider"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart"
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
+import { Skeleton } from "@/components/ui/skeleton"
+import { FileText, Zap, Signal } from "lucide-react"
 
-const mockUsageData = [
-  { date: "Jan 1", consumption: 245 },
-  { date: "Jan 2", consumption: 267 },
-  { date: "Jan 3", consumption: 234 },
-  { date: "Jan 4", consumption: 289 },
-  { date: "Jan 5", consumption: 256 },
-  { date: "Jan 6", consumption: 278 },
-  { date: "Jan 7", consumption: 245 },
-]
+// Define the structure of our API response
+interface DashboardData {
+  totalConsumption: number;
+  avgVoltage: number;
+  pendingComplaints: number;
+  chartData: {
+    month: string;
+    total: number;
+  }[];
+}
 
 export default function UserDashboard() {
+  const { user } = useAuth()
+  const [data, setData] = useState<DashboardData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (user) {
+      const fetchData = async () => {
+        setLoading(true);
+        try {
+          const response = await fetch(`/api/user/${user.id}/dashboard`);
+          if (!response.ok) {
+            throw new Error('Failed to fetch dashboard data');
+          }
+          const dashboardData = await response.json();
+          setData(dashboardData);
+        } catch (error) {
+          console.error(error);
+          // Handle error (e.g., show toast)
+        } finally {
+          setLoading(false);
+        }
+      }
+      fetchData();
+    }
+  }, [user]) // Re-run when 'user' is available
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Welcome back!</h1>
-        <p className="text-muted-foreground">Check your electricity usage and anomaly status</p>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+      <h2 className="text-3xl font-bold tracking-tight">
+        Welcome back, {user ? user.name : '...'}!
+      </h2>
+      
+      {/* 3 Main Stat Cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Current Status</CardTitle>
-            <Zap className="h-4 w-4 text-blue-600" />
+            <CardTitle className="text-sm font-medium">Total Consumption (All Time)</CardTitle>
+            <Zap className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary" className="bg-green-100 text-green-800">
-                <CheckCircle className="h-3 w-3 mr-1" />
-                Normal
-              </Badge>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">Last checked 2 hours ago</p>
+            {loading ? <Skeleton className="h-8 w-32" /> : (
+              <div className="text-2xl font-bold">{data?.totalConsumption} kWh</div>
+            )}
+            <p className="text-xs text-muted-foreground">Total energy used since first record</p>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Average Voltage</CardTitle>
+            <Signal className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {loading ? <Skeleton className="h-8 w-32" /> : (
+              <div className="text-2xl font-bold">{data?.avgVoltage} V</div>
+            )}
+            <p className="text-xs text-muted-foreground">Average voltage received</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Monthly Usage</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-600" />
+            <CardTitle className="text-sm font-medium">Pending Complaints</CardTitle>
+            <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">245 kWh</div>
-            <p className="text-xs text-muted-foreground">+5% from last month</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Complaints</CardTitle>
-            <FileText className="h-4 w-4 text-orange-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">2</div>
-            <p className="text-xs text-muted-foreground">1 in review, 1 resolved</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Last Report</CardTitle>
-            <Calendar className="h-4 w-4 text-purple-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">Jan 7</div>
-            <p className="text-xs text-muted-foreground">Normal reading</p>
+            {loading ? <Skeleton className="h-8 w-32" /> : (
+              <div className="text-2xl font-bold">{data?.pendingComplaints}</div>
+            )}
+            <p className="text-xs text-muted-foreground">Your active, unresolved complaints</p>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Usage Trend (Last 7 Days)</CardTitle>
-            <CardDescription>Your daily electricity consumption</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={mockUsageData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Line
-                  type="monotone"
-                  dataKey="consumption"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  name="Consumption (kWh)"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
-            <CardDescription>Common tasks and shortcuts</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Link href="/user/check-usage">
-              <Button className="w-full justify-start" variant="outline">
-                <Zap className="h-4 w-4 mr-2" />
-                Check Current Usage
-              </Button>
-            </Link>
-            <Link href="/user/reports">
-              <Button className="w-full justify-start" variant="outline">
-                <FileText className="h-4 w-4 mr-2" />
-                View My Reports
-              </Button>
-            </Link>
-            <Link href="/user/complaints">
-              <Button className="w-full justify-start" variant="outline">
-                <AlertTriangle className="h-4 w-4 mr-2" />
-                File a Complaint
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-      </div>
-
+      {/* Main Chart Card */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
-            Recent Activity
-          </CardTitle>
+          <CardTitle>Recent Usage Overview</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <CheckCircle className="h-4 w-4 text-green-600" />
-              <div className="flex-1">
-                <p className="text-sm">Usage checked - Normal reading confirmed</p>
-                <p className="text-xs text-muted-foreground">Today, 2:30 PM</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <FileText className="h-4 w-4 text-blue-600" />
-              <div className="flex-1">
-                <p className="text-sm">Monthly report generated</p>
-                <p className="text-xs text-muted-foreground">Yesterday, 6:00 PM</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="h-4 w-4 text-orange-600" />
-              <div className="flex-1">
-                <p className="text-sm">Complaint #C001 status updated to "Resolved"</p>
-                <p className="text-xs text-muted-foreground">2 days ago, 3:15 PM</p>
-              </div>
-            </div>
-          </div>
+        <CardContent className="pl-2">
+          {loading ? (
+            <Skeleton className="h-[350px] w-full" />
+          ) : (
+            <ChartContainer config={{}} className="h-[350px] w-full">
+              <BarChart accessibilityLayer data={data?.chartData}>
+                <CartesianGrid vertical={false} />
+                <XAxis
+                  dataKey="month"
+                  tickLine={false}
+                  tickMargin={10}
+                  axisLine={false}
+                />
+                <YAxis />
+                <ChartTooltip
+                  content={<ChartTooltipContent />}
+                />
+                <Bar dataKey="total" fill="var(--color-primary)" radius={4} />
+              </BarChart>
+            </ChartContainer>
+          )}
         </CardContent>
       </Card>
     </div>
   )
 }
-

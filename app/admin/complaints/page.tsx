@@ -6,8 +6,9 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button" // Import Button
 import { useToast } from "@/hooks/use-toast"
-import { AlertCircle, CheckCircle } from 'lucide-react'
+import { FileText, AlertCircle, CheckCircle, CheckSquare } from 'lucide-react' // Import CheckSquare
 
 // Define the structure of a complaint
 interface Complaint {
@@ -29,7 +30,6 @@ export default function AdminComplaintsPage() {
   const fetchComplaints = async () => {
     setLoading(true);
     try {
-      // This calls the GET function we added to your complaints API
       const response = await fetch('/api/complaints'); 
       if (!response.ok) {
         throw new Error('Failed to fetch complaints');
@@ -51,6 +51,34 @@ export default function AdminComplaintsPage() {
   useEffect(() => {
     fetchComplaints();
   }, [])
+
+  // --- NEW FUNCTION TO HANDLE RESOLVING A COMPLAINT ---
+  const handleResolve = async (complaintId: number) => {
+    try {
+      const response = await fetch(`/api/complaints/${complaintId}`, {
+        method: 'PATCH', // Use PATCH to update
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to resolve complaint');
+      }
+
+      toast({
+        title: "Success",
+        description: "Complaint marked as resolved.",
+      });
+
+      // Refresh the table to show the new "Resolved" status
+      fetchComplaints(); 
+
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Could not resolve complaint.",
+        variant: "destructive",
+      })
+    }
+  }
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -114,7 +142,17 @@ export default function AdminComplaintsPage() {
                     <TableCell>{complaint.subject}</TableCell>
                     <TableCell>{formatDate(complaint.created_at)}</TableCell>
                     <TableCell>
-                      {/* We will add a button here in the next step */}
+                      {/* --- ADDED THIS BUTTON --- */}
+                      {complaint.status === 'submitted' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleResolve(complaint.id)}
+                        >
+                          <CheckSquare className="mr-2 h-4 w-4" />
+                          Mark as Resolved
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))
