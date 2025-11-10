@@ -32,11 +32,16 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const userId = params.id;
+    // --- FIX 1: Await the request body BEFORE accessing params ---
     const { name, email, address, phone } = await request.json();
 
-    if (!name || !email || !address || !phone) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    // --- FIX 1 (Continued): Access params.id AFTER the first await ---
+    const userId = params.id; 
+
+    // --- FIX 2: Update the validation check ---
+    // We only require name, email, and phone. Address can be empty for admins.
+    if (!name || !email || !phone) {
+      return NextResponse.json({ error: 'Missing required fields: name, email, and phone are required.' }, { status: 400 });
     }
 
     const updateQuery = await db.query(
