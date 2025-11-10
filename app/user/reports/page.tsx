@@ -1,3 +1,5 @@
+// FILE: app/user/reports/page.tsx
+
 "use client"
 
 import { useState, useEffect } from "react"
@@ -9,74 +11,36 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Calendar, Download, Search, Eye, FileText, TrendingUp, AlertTriangle, CheckCircle } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { useToast } from "@/hooks/use-toast"
+import { useAuth } from "@/components/auth/auth-provider" // <-- 1. IMPORT useAuth
 
-interface UserReport {
-  id: string
-  rrno: string
-  name: string
-  address: string
-  village: string
-  date_range: string
-  consumption_data: { date: string; consumption: number; voltage: number }[]
-  anomaly_status: "normal" | "suspicious" | "theft"
-  total_consumption: number
-  avg_consumption: number
-  billing_amount: number
-  confidence_score: number
-  created_at: string
+interface ConsumptionData {
+  date: string;
+  consumption: number;
+  voltage: number;
 }
 
-const mockReports: UserReport[] = [
-  {
-    id: "report_001",
-    rrno: "RR1001",
-    name: "John Doe",
-    address: "123 Main Street",
-    village: "Ankola",
-    date_range: "Jan 1-7, 2024",
-    consumption_data: [
-      { date: "Jan 1", consumption: 245, voltage: 230 },
-      { date: "Jan 2", consumption: 267, voltage: 225 },
-      { date: "Jan 3", consumption: 234, voltage: 235 },
-      { date: "Jan 4", consumption: 289, voltage: 228 },
-      { date: "Jan 5", consumption: 256, voltage: 232 },
-      { date: "Jan 6", consumption: 278, voltage: 227 },
-      { date: "Jan 7", consumption: 245, voltage: 230 },
-    ],
-    anomaly_status: "normal",
-    total_consumption: 1814,
-    avg_consumption: 259,
-    billing_amount: 1814,
-    confidence_score: 0.95,
-    created_at: "2024-01-08T10:30:00Z",
-  },
-  {
-    id: "report_002",
-    rrno: "RR1001",
-    name: "John Doe",
-    address: "123 Main Street",
-    village: "Ankola",
-    date_range: "Dec 25-31, 2023",
-    consumption_data: [
-      { date: "Dec 25", consumption: 320, voltage: 220 },
-      { date: "Dec 26", consumption: 345, voltage: 215 },
-      { date: "Dec 27", consumption: 298, voltage: 225 },
-      { date: "Dec 28", consumption: 412, voltage: 210 },
-      { date: "Dec 29", consumption: 378, voltage: 218 },
-      { date: "Dec 30", consumption: 356, voltage: 222 },
-      { date: "Dec 31", consumption: 289, voltage: 228 },
-    ],
-    anomaly_status: "suspicious",
-    total_consumption: 2398,
-    avg_consumption: 342,
-    billing_amount: 2398,
-    confidence_score: 0.78,
-    created_at: "2024-01-01T10:30:00Z",
-  },
-]
+// 2. UPDATE UserReport interface to match our API
+interface UserReport {
+  id: string;
+  rrno: string;
+  name: string;
+  address: string;
+  village: string;
+  date_range: string;
+  consumption_data: ConsumptionData[];
+  anomaly_status: "normal" | "suspicious" | "theft";
+  total_consumption: number;
+  avg_consumption: number;
+  billing_amount: number;
+  confidence_score: number;
+  created_at: string;
+}
+
+// 3. REMOVED mockReports ARRAY
 
 export default function UserReportsPage() {
   const { toast } = useToast()
+  const { user } = useAuth() // <-- 4. GET THE LOGGED-IN USER
   const [reports, setReports] = useState<UserReport[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedReport, setSelectedReport] = useState<UserReport | null>(null)
@@ -86,17 +50,32 @@ export default function UserReportsPage() {
     dateRange: "all",
   })
 
-  useEffect(() => {
-    loadReports()
-  }, [])
-
+  // 5. UPDATE loadReports to fetch from our new API
   const loadReports = async () => {
-    setLoading(true)
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    setReports(mockReports)
-    setLoading(false)
+    if (!user) return; // Wait for user to be loaded
+    
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/user/${user.id}/reports`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch reports');
+      }
+      const data = await response.json();
+      setReports(data);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Could not fetch reports.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   }
+
+  useEffect(() => {
+    loadReports();
+  }, [user]) // <-- 6. Re-run when 'user' is available
 
   const downloadReport = async (report: UserReport) => {
     try {
@@ -150,13 +129,23 @@ export default function UserReportsPage() {
     return matchesSearch && matchesStatus
   })
 
-  if (loading) {
+  if (loading && reports.length === 0) { // Only show full-page loader on first load
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <span className="ml-3">Loading your reports...</span>
       </div>
     )
   }
+  
+  // 7. (Minor change) Calculate stats from 'reports' state
+  const totalReports = reports.length;
+  const normalReports = reports.filter(r => r.anomaly_status === "normal").length;
+  const suspiciousReports = reports.filter(r => r.anomaly_status === "suspicious").length;
+  const avgConsumption = totalReports > 0 
+    ? Math.round(reports.reduce((acc, r) => acc + r.avg_consumption, 0) / totalReports)
+    : 0;
+
 
   return (
     <div className="space-y-6">
@@ -178,7 +167,7 @@ export default function UserReportsPage() {
             <CardTitle className="text-sm font-medium">Total Reports</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{reports.length}</div>
+            <div className="text-2xl font-bold">{totalReports}</div>
           </CardContent>
         </Card>
         <Card>
@@ -187,7 +176,7 @@ export default function UserReportsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {reports.filter(r => r.anomaly_status === "normal").length}
+              {normalReports}
             </div>
           </CardContent>
         </Card>
@@ -197,7 +186,7 @@ export default function UserReportsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-yellow-600">
-              {reports.filter(r => r.anomaly_status === "suspicious").length}
+              {suspiciousReports}
             </div>
           </CardContent>
         </Card>
@@ -207,7 +196,7 @@ export default function UserReportsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-600">
-              {Math.round(reports.reduce((acc, r) => acc + r.avg_consumption, 0) / reports.length)} kWh
+              {avgConsumption} kWh
             </div>
           </CardContent>
         </Card>
@@ -279,15 +268,15 @@ export default function UserReportsPage() {
                   <div className="grid gap-2 text-sm">
                     <div className="flex justify-between">
                       <span>Total Consumption:</span>
-                      <span className="font-semibold">{report.total_consumption} kWh</span>
+                      <span className="font-semibold">{report.total_consumption.toFixed(2)} kWh</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Average Daily:</span>
-                      <span className="font-semibold">{report.avg_consumption} kWh</span>
+                      <span className="font-semibold">{report.avg_consumption.toFixed(2)} kWh</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Billing Amount:</span>
-                      <span className="font-semibold">₹{report.billing_amount}</span>
+                      <span>Billing Amount (Est.):</span>
+                      <span className="font-semibold">₹{report.billing_amount.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Confidence Score:</span>
@@ -319,7 +308,7 @@ export default function UserReportsPage() {
         ))}
       </div>
 
-      {filteredReports.length === 0 && (
+      {filteredReports.length === 0 && !loading && (
         <Card>
           <CardContent className="text-center py-8">
             <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />

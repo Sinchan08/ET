@@ -1,6 +1,8 @@
+// FILE: app/user/settings/page.tsx
+
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,21 +14,26 @@ import { Separator } from "@/components/ui/separator"
 import { User, Settings, Bell, Eye, EyeOff, Save } from 'lucide-react'
 import { useTheme } from "next-themes"
 import { useToast } from "@/hooks/use-toast"
+import { useAuth } from "@/components/auth/auth-provider" // <-- 1. IMPORT useAuth
+import { Skeleton } from "@/components/ui/skeleton" // <-- 2. IMPORT Skeleton
 
 export default function UserSettingsPage() {
   const { theme, setTheme } = useTheme()
   const { toast } = useToast()
+  const { user } = useAuth() // <-- 3. GET THE LOGGED-IN USER
 
   const [profile, setProfile] = useState({
-    name: "John Doe",
-    email: "john.doe@example.com",
-    rrno: "RR1001",
-    address: "123 Main Street, Ankola",
-    phone: "+91 9876543210",
+    name: "",
+    email: "",
+    rrno: "",
+    address: "",
+    phone: "", // This will be 'phone_number' from DB
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
   })
+  
+  const [loading, setLoading] = useState(true); // <-- 4. Add loading state
 
   const [showPasswords, setShowPasswords] = useState({
     current: false,
@@ -34,6 +41,7 @@ export default function UserSettingsPage() {
     confirm: false,
   })
 
+  // Notification state (remains client-side for now)
   const [notifications, setNotifications] = useState({
     emailAlerts: true,
     smsAlerts: false,
@@ -42,22 +50,81 @@ export default function UserSettingsPage() {
     systemUpdates: false,
   })
 
+  // 5. ADD useEffect TO FETCH DATA
+  useEffect(() => {
+    if (user) {
+      const fetchProfile = async () => {
+        setLoading(true);
+        try {
+          const response = await fetch(`/api/user/${user.id}/profile`);
+          if (!response.ok) {
+            throw new Error('Failed to fetch profile');
+          }
+          const data = await response.json();
+          setProfile((prev) => ({
+            ...prev,
+            name: data.name,
+            email: data.email,
+            rrno: data.rrno,
+            address: data.address,
+            phone: data.phone_number, // Map db 'phone_number' to 'phone'
+          }));
+        } catch (error: any) {
+          toast({ title: "Error", description: error.message, variant: "destructive" });
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchProfile();
+    }
+  }, [user, toast]);
+
+  // 6. UPDATE handleProfileUpdate
   const handleProfileUpdate = async () => {
+    if (!user) return;
     try {
+      const response = await fetch(`/api/user/${user.id}/profile`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: profile.name,
+          email: profile.email,
+          address: profile.address,
+          phone: profile.phone,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to update profile');
+      }
+      
+      const updatedUser = await response.json();
+      setProfile((prev) => ({
+        ...prev,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        address: updatedUser.address,
+        phone: updatedUser.phone_number,
+      }));
+      
       toast({
         title: "Profile updated",
         description: "Your profile has been updated successfully.",
       })
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Update failed",
-        description: "Failed to update profile. Please try again.",
+        description: error.message,
         variant: "destructive",
       })
     }
   }
 
+  // 7. UPDATE handlePasswordChange
   const handlePasswordChange = async () => {
+    if (!user) return;
+    
     if (profile.newPassword !== profile.confirmPassword) {
       toast({
         title: "Password mismatch",
@@ -68,6 +135,21 @@ export default function UserSettingsPage() {
     }
 
     try {
+      const response = await fetch(`/api/user/${user.id}/password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: profile.currentPassword,
+          newPassword: profile.newPassword,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to change password');
+      }
+
       toast({
         title: "Password changed",
         description: "Your password has been changed successfully.",
@@ -78,28 +160,21 @@ export default function UserSettingsPage() {
         newPassword: "",
         confirmPassword: "",
       }))
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Password change failed",
-        description: "Failed to change password. Please try again.",
+        description: error.message,
         variant: "destructive",
       })
     }
   }
 
+  // This function remains client-side, no API needed unless you want to save prefs
   const handleNotificationUpdate = async () => {
-    try {
-      toast({
-        title: "Preferences updated",
-        description: "Your notification preferences have been saved.",
-      })
-    } catch (error) {
-      toast({
-        title: "Update failed",
-        description: "Failed to update notification preferences.",
-        variant: "destructive",
-      })
-    }
+    toast({
+      title: "Preferences updated",
+      description: "Your notification preferences have been saved.",
+    })
   }
 
   return (
@@ -127,47 +202,60 @@ export default function UserSettingsPage() {
                 <CardDescription>Update your personal information</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input
-                    id="name"
-                    value={profile.name}
-                    onChange={(e) => setProfile((prev) => ({ ...prev, name: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email Address</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={profile.email}
-                    onChange={(e) => setProfile((prev) => ({ ...prev, email: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="rrno">RRNO</Label>
-                  <Input id="rrno" value={profile.rrno} disabled />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="address">Address</Label>
-                  <Input
-                    id="address"
-                    value={profile.address}
-                    onChange={(e) => setProfile((prev) => ({ ...prev, address: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input
-                    id="phone"
-                    value={profile.phone}
-                    onChange={(e) => setProfile((prev) => ({ ...prev, phone: e.target.value }))}
-                  />
-                </div>
-                <Button onClick={handleProfileUpdate}>
-                  <Save className="h-4 w-4 mr-2" />
-                  Update Profile
-                </Button>
+                {/* 8. Add Skeleton loaders for loading state */}
+                {loading ? (
+                  <div className="space-y-4">
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="name">Full Name</Label>
+                      <Input
+                        id="name"
+                        value={profile.name}
+                        onChange={(e) => setProfile((prev) => ({ ...prev, name: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email Address</Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={profile.email}
+                        onChange={(e) => setProfile((prev) => ({ ...prev, email: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="rrno">RRNO</Label>
+                      <Input id="rrno" value={profile.rrno} disabled />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="address">Address</Label>
+                      <Input
+                        id="address"
+                        value={profile.address}
+                        onChange={(e) => setProfile((prev) => ({ ...prev, address: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phone">Phone Number</Label>
+                      <Input
+                        id="phone"
+                        value={profile.phone}
+                        onChange={(e) => setProfile((prev) => ({ ...prev, phone: e.target.value }))}
+                      />
+                    </div>
+                    <Button onClick={handleProfileUpdate}>
+                      <Save className="h-4 w-4 mr-2" />
+                      Update Profile
+                    </Button>
+                  </>
+                )}
               </CardContent>
             </Card>
 

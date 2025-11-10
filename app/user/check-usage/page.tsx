@@ -1,51 +1,53 @@
+// FILE: app/user/check-usage/page.tsx
+
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Zap, CheckCircle, AlertTriangle, Calendar, Activity, TrendingUp } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+import { useAuth } from "@/components/auth/auth-provider" // <-- 1. IMPORT useAuth
+import { useToast } from "@/hooks/use-toast"
+import { Skeleton } from "@/components/ui/skeleton"
 
-const mockUsageData = [
-  { date: "2024-01-01", consumption: 245, voltage: 230, current: 12 },
-  { date: "2024-01-02", consumption: 267, voltage: 225, current: 13 },
-  { date: "2024-01-03", consumption: 234, voltage: 235, current: 11 },
-  { date: "2024-01-04", consumption: 289, voltage: 228, current: 14 },
-  { date: "2024-01-05", consumption: 256, voltage: 232, current: 12 },
-  { date: "2024-01-06", consumption: 278, voltage: 227, current: 13 },
-  { date: "2024-01-07", consumption: 245, voltage: 230, current: 12 },
-]
+// 2. REMOVED mockUsageData
 
 export default function CheckUsagePage() {
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>({
-    rrno: "RR1001",
-    status: "normal",
-    confidence: 0.95,
-    lastReading: {
-      date: "2024-01-07",
-      consumption: 245,
-      voltage: 230,
-      current: 12,
-      billing: 2450,
-      powerFactor: 0.85,
-    },
-    anomalyType: null,
-    riskLevel: "low",
-    recommendations: [
-      "Usage is within normal range",
-      "Continue regular monitoring",
-      "Consider energy-saving practices"
-    ],
-  })
+  const [result, setResult] = useState<any>(null) // <-- 3. Start with null data
+  const { user } = useAuth() // <-- 4. GET THE LOGGED-IN USER
+  const { toast } = useToast()
 
   const checkUsage = async () => {
-    setLoading(true)
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    setLoading(false)
+    if (!user) {
+      toast({ title: "Error", description: "User not loaded.", variant: "destructive" });
+      return;
+    }
+    setLoading(true);
+    
+    // 5. THIS IS THE NEW FETCH LOGIC
+    try {
+      const response = await fetch(`/api/user/${user.id}/usage`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch usage data');
+      }
+      const data = await response.json();
+      setResult(data);
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
   }
+  
+  // 6. Automatically fetch data when the page loads
+  useEffect(() => {
+    if (user) {
+      checkUsage();
+    }
+  }, [user]);
 
   return (
     <div className="space-y-6">
@@ -69,6 +71,41 @@ export default function CheckUsagePage() {
         </CardContent>
       </Card>
 
+      {/* 7. Show skeleton loaders while loading */}
+      {loading && !result && (
+        <div className="grid gap-6 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" /></CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Skeleton className="h-6 w-3/4" />
+              <Skeleton className="h-6 w-1/2" />
+              <Skeleton className="h-6 w-2/3" />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><Calendar className="h-5 w-5" /></CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Skeleton className="h-6 w-3/4" />
+              <Skeleton className="h-6 w-1/2" />
+              <Skeleton className="h-6 w-2/3" />
+            </CardContent>
+          </Card>
+          <Card className="md:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" /></CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-[300px] w-full" />
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* 8. Render the results once 'result' is not null */}
       {result && (
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
@@ -140,27 +177,27 @@ export default function CheckUsagePage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground">Date</p>
-                  <p className="font-semibold">{result.lastReading.date}</p>
+                  <p className="font-semibold">{result.lastReading.date || 'N/A'}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Consumption</p>
-                  <p className="font-semibold">{result.lastReading.consumption} kWh</p>
+                  <p className="font-semibold">{result.lastReading.consumption || 0} kWh</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Voltage</p>
-                  <p className="font-semibold">{result.lastReading.voltage} V</p>
+                  <p className="font-semibold">{result.lastReading.voltage || 0} V</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Current</p>
-                  <p className="font-semibold">{result.lastReading.current} A</p>
+                  <p className="font-semibold">{result.lastReading.current || 0} A</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Billing</p>
-                  <p className="font-semibold">₹{result.lastReading.billing}</p>
+                  <p className="text-sm text-muted-foreground">Billing (Est.)</p>
+                  <p className="font-semibold">₹{result.lastReading.billing || 0}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Power Factor</p>
-                  <p className="font-semibold">{result.lastReading.powerFactor}</p>
+                  <p className="font-semibold">{result.lastReading.powerFactor || 0}</p>
                 </div>
               </div>
             </CardContent>
@@ -175,7 +212,8 @@ export default function CheckUsagePage() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={mockUsageData}>
+                {/* 9. Use real chart data */}
+                <LineChart data={result.chartData}> 
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" />
                   <YAxis />
