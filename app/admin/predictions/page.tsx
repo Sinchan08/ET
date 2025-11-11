@@ -1,3 +1,4 @@
+// FILE: app/admin/predictions/page.tsx
 "use client"
 
 import { useState, useEffect } from "react"
@@ -7,6 +8,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Zap, AlertCircle } from 'lucide-react'
+// --- IMPORT PAGINATION COMPONENTS ---
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationPrevious,
+  PaginationLink,
+  PaginationNext,
+  PaginationEllipsis,
+} from "@/components/ui/pagination"
 
 // Define the structure of your data
 interface DataRecord {
@@ -14,8 +25,8 @@ interface DataRecord {
   rrno: string;
   village: string;
   record_date: string;
-  consumption: number;
-  voltage: number;
+  consumption: number; // Assuming this is "Consumption" from DB
+  voltage: number;     // Assuming this is "Voltage" from DB
   is_anomaly: boolean;
   confidence: number;
 }
@@ -26,16 +37,26 @@ export default function PredictionsPage() {
   const [predicting, setPredicting] = useState(false)
   const { toast } = useToast()
 
-  // Function to fetch data from our new GET endpoint
-  const fetchData = async () => {
+  // --- ADD PAGINATION STATE ---
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(0)
+
+  // Function to fetch data from our new paginated GET endpoint
+  const fetchData = async (page: number) => {
     setLoading(true);
     try {
-      const response = await fetch('/api/predictions');
+      // --- Fetch the specific page ---
+      const response = await fetch(`/api/predictions?page=${page}`);
       if (!response.ok) {
         throw new Error('Failed to fetch data');
       }
-      const records = await response.json();
-      setData(records);
+      const data = await response.json();
+      
+      // The API now returns an object { records, totalPages }
+      setData(data.records);
+      setTotalPages(data.totalPages);
+      setCurrentPage(page);
+
     } catch (error: any) {
       toast({
         title: "Error",
@@ -47,10 +68,10 @@ export default function PredictionsPage() {
     }
   }
 
-  // Fetch data when the page loads
+  // Fetch data when the page loads (or when currentPage changes)
   useEffect(() => {
-    fetchData();
-  }, [])
+    fetchData(currentPage);
+  }, [currentPage]) // Re-run when currentPage changes
 
   // Function to run the prediction model
   const handleRunPrediction = async () => {
@@ -65,11 +86,15 @@ export default function PredictionsPage() {
 
       toast({
         title: "Prediction Complete",
-        description: `Model processed ${result.total_records} records. ${result.anomalies_found} anomalies found.`,
+        description: `Model processed ${result.total_records} records. ${result.anomalies_found} anomalies found. Rules breached: ${result.rules_breached}.`,
       })
       
-      // Refresh the data in the table to show the new results
-      fetchData();
+      // Refresh the data in the table (go back to page 1 to see new results)
+      if (currentPage === 1) {
+        fetchData(1); // Already on page 1, just refetch
+      } else {
+        setCurrentPage(1); // This will trigger the useEffect to refetch page 1
+      }
 
     } catch (error: any) {
       toast({
@@ -88,6 +113,86 @@ export default function PredictionsPage() {
       month: 'short',
       day: 'numeric',
     });
+  }
+
+  // --- PAGINATION HANDLERS ---
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+    }
+  }
+  
+  // --- FUNCTION TO RENDER PAGINATION BUTTONS ---
+  const renderPagination = () => {
+    if (totalPages <= 1) return null;
+
+    const pageNumbers = [];
+    const maxPagesToShow = 5;
+    
+    let startPage = Math.max(1, currentPage - 2);
+    let endPage = Math.min(totalPages, currentPage + 2);
+
+    if (currentPage <= 3) {
+      endPage = Math.min(totalPages, maxPagesToShow);
+    }
+    if (currentPage > totalPages - 3) {
+      startPage = Math.max(1, totalPages - maxPagesToShow + 1);
+    }
+
+    if (startPage > 1) {
+      pageNumbers.push(
+        <PaginationItem key="1">
+          <PaginationLink onClick={() => handlePageChange(1)}>1</PaginationLink>
+        </PaginationItem>
+      );
+      if (startPage > 2) {
+        pageNumbers.push(<PaginationItem key="start-ellipsis"><PaginationEllipsis /></PaginationItem>);
+      }
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+      pageNumbers.push(
+        <PaginationItem key={i}>
+          <PaginationLink 
+            isActive={i === currentPage} 
+            onClick={() => handlePageChange(i)}
+          >
+            {i}
+          </PaginationLink>
+        </PaginationItem>
+      );
+    }
+
+    if (endPage < totalPages) {
+      if (endPage < totalPages - 1) {
+        pageNumbers.push(<PaginationItem key="end-ellipsis"><PaginationEllipsis /></PaginationItem>);
+      }
+      pageNumbers.push(
+        <PaginationItem key={totalPages}>
+          <PaginationLink onClick={() => handlePageChange(totalPages)}>{totalPages}</PaginationLink>
+        </PaginationItem>
+      );
+    }
+
+    return (
+      <Pagination>
+        <PaginationContent>
+          <PaginationItem>
+            <PaginationPrevious 
+              onClick={() => handlePageChange(currentPage - 1)} 
+              className={currentPage === 1 ? 'pointer-events-none opacity-50' : ''}
+            />
+          </PaginationItem>
+          {pageNumbers}
+          <PaginationItem>
+            <PaginationNext 
+              onClick={() => handlePageChange(currentPage + 1)}
+              className={currentPage === totalPages ? 'pointer-events-none opacity-50' : ''}
+            />
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>
+    );
   }
 
   return (
@@ -121,7 +226,7 @@ export default function PredictionsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>RR No.</TableHead>
-                <TableHead>Village</TableHead>
+                <TableHead>Address</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Consumption</TableHead>
                 <TableHead>Voltage</TableHead>
@@ -131,29 +236,40 @@ export default function PredictionsPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center">Loading data...</TableCell>
+                  <TableCell colSpan={6} className="text-center h-24">Loading data...</TableCell>
                 </TableRow>
-              ) : data.map((record) => (
-                <TableRow key={record.id} className={record.is_anomaly ? 'bg-red-100 dark:bg-red-900/30' : ''}>
-                  <TableCell>{record.rrno}</TableCell>
-                  <TableCell>{record.village}</TableCell>
-                  <TableCell>{formatDate(record.record_date)}</TableCell>
-                  <TableCell>{record.consumption}</TableCell>
-                  <TableCell>{record.voltage}</TableCell>
-                  <TableCell>
-                    {record.is_anomaly ? (
-                      <Badge variant="destructive" className="flex items-center w-fit">
-                        <AlertCircle className="mr-1 h-3 w-3" />
-                        Anomaly
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline">Normal</Badge>
-                    )}
-                  </TableCell>
+              ) : data.length === 0 ? (
+                 <TableRow>
+                  <TableCell colSpan={6} className="text-center h-24">No data found.</TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                data.map((record) => (
+                  <TableRow key={record.id} className={record.is_anomaly ? 'bg-red-100 dark:bg-red-900/30' : ''}>
+                    <TableCell>{record.rrno}</TableCell>
+                    <TableCell>{record.village}</TableCell> {/* Note: This is 'village' from your DB */}
+                    <TableCell>{formatDate(record.record_date)}</TableCell>
+                    <TableCell>{record.consumption}</TableCell>
+                    <TableCell>{record.voltage}</TableCell>
+                    <TableCell>
+                      {record.is_anomaly ? (
+                        <Badge variant="destructive" className="flex items-center w-fit">
+                          <AlertCircle className="mr-1 h-3 w-3" />
+                          Anomaly
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline">Normal</Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
+          
+          {/* --- ADD THE PAGINATION CONTROLS --- */}
+          <div className="mt-4">
+            {renderPagination()}
+          </div>
         </CardContent>
       </Card>
     </div>

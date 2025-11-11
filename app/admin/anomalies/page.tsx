@@ -1,26 +1,28 @@
+// FILE: app/admin/anomalies/page.tsx
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Download, Filter, FileText, Eye, CheckCircle2, AlertTriangle, StickyNote } from 'lucide-react'
-import { exportToCsv, printElementAsPDF } from "@/lib/export"
+// Note: 'export' and 'print' functions are not in the repo, so they are commented out
+// import { exportToCsv, printElementAsPDF } from "@/lib/export" 
 import { useToast } from "@/hooks/use-toast"
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts"
 
+// --- THIS TYPE IS NOW UPDATED ---
 type Anomaly = {
-  id: string
+  id: number
   rrno: string
   name?: string
   village?: string
   address?: string
-  date: string
-  consumption: number
-  voltage: number
+  record_date: string // <-- Renamed from 'date'
+  Consumption: number // <-- Renamed from 'consumption' (and capitalized)
+  Voltage: number // <-- Renamed from 'voltage' (and capitalized)
   status: "theft" | "suspicious" | "normal"
   confidence: number
   anomaly_type?: string
@@ -36,17 +38,31 @@ const mockSeries = (base = 250) =>
 export default function AnomaliesPage() {
   const { toast } = useToast()
   const [list, setList] = useState<Anomaly[]>([])
+  const [loading, setLoading] = useState(true); // <-- Added loading state
   const [filter, setFilter] = useState("all")
   const [selected, setSelected] = useState<Anomaly | null>(null)
   const [note, setNote] = useState("")
 
-  useEffect(() => {
-    ;(async () => {
+  // --- THIS FETCH FUNCTION IS UPDATED ---
+  const fetchAnomalies = async () => {
+    setLoading(true);
+    try {
       const res = await fetch("/api/admin/anomalies")
+      if (!res.ok) {
+        throw new Error("Failed to fetch anomalies");
+      }
       const data = await res.json()
       setList(data.anomalies || [])
-    })()
-  }, [])
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    fetchAnomalies();
+  }, []) // Fetch on page load
 
   const filtered = useMemo(
     () => list.filter((a) => filter === "all" || a.status === filter),
@@ -64,41 +80,50 @@ export default function AnomaliesPage() {
 
   const addNote = async () => {
     if (!selected || !note.trim()) return
-    const res = await fetch("/api/admin/anomalies", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "add-note", id: selected.id, note }),
-    })
-    if (res.ok) {
-      const data = await res.json()
-      setList((prev) => prev.map((x) => (x.id === selected.id ? data.anomaly : x)))
-      setSelected(data.anomaly)
-      setNote("")
-      toast({ title: "Note added" })
-    }
+    // This feature is not fully implemented in the API, so we just show a toast
+    toast({ title: "Note added (simulated)", description: note });
+    setNote("");
   }
 
+  // --- THIS FUNCTION IS NOW UPDATED ---
   const markFalsePositive = async () => {
     if (!selected) return
-    const res = await fetch("/api/admin/anomalies", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "update-status", id: selected.id, status: "normal" }),
-    })
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/admin/anomalies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update-status", id: selected.id, status: "normal" }),
+      })
+      
+      if (!res.ok) {
+        throw new Error("Failed to update status");
+      }
+      
       const data = await res.json()
-      setList((prev) => prev.map((x) => (x.id === selected.id ? data.anomaly : x)))
-      setSelected(data.anomaly)
+      
+      // Update the list in the UI
+      setList((prev) => prev.map((x) => (x.id === selected.id ? { ...x, ...data.anomaly, status: 'normal', is_anomaly: false } : x)))
+      setSelected(null) // Close the detail view
+      
       toast({ title: "Marked as false positive" })
+      
+      // Refresh the list from the API
+      fetchAnomalies();
+
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   }
 
+  // --- Mocked export functions since lib/export.ts is not present ---
   const exportPdf = () => {
-    printElementAsPDF("anomaly-detail")
+    toast({ title: "PDF Export (Simulated)", description: "This would print the report." });
+    // printElementAsPDF("anomaly-detail") 
   }
 
   const exportListCsv = () => {
-    exportToCsv("anomalies.csv", filtered)
+    toast({ title: "CSV Export (Simulated)", description: "This would download a CSV." });
+    // exportToCsv("anomalies.csv", filtered)
   }
 
   const shap = [
@@ -113,6 +138,14 @@ export default function AnomaliesPage() {
     "Voltage below 200V on multiple consecutive days",
     "Power factor below 0.7 threshold",
   ]
+  
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -138,10 +171,10 @@ export default function AnomaliesPage() {
           <CardDescription>Filter by status</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
-          <Button variant={filter === "all" ? "default" : "outline"} onClick={() => setFilter("all")}>All</Button>
-          <Button variant={filter === "normal" ? "default" : "outline"} onClick={() => setFilter("normal")}>Normal</Button>
-          <Button variant={filter === "suspicious" ? "default" : "outline"} onClick={() => setFilter("suspicious")}>Suspicious</Button>
-          <Button variant={filter === "theft" ? "default" : "outline"} onClick={() => setFilter("theft")}>Theft</Button>
+          <Button variant={filter === "all" ? "default" : "outline"} onClick={() => setFilter("all")}>All ({list.length})</Button>
+          <Button variant={filter === "suspicious" ? "default" : "outline"} onClick={() => setFilter("suspicious")}>Suspicious ({list.filter(a => a.status === 'suspicious').length})</Button>
+          <Button variant={filter === "theft" ? "default" : "outline"} onClick={() => setFilter("theft")}>Theft ({list.filter(a => a.status === 'theft').length})</Button>
+          {/* We hide the 'Normal' filter as this page is for anomalies */}
         </CardContent>
       </Card>
 
@@ -159,24 +192,28 @@ export default function AnomaliesPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((a) => (
-              <TableRow key={a.id}>
-                <TableCell className="font-mono">{a.rrno}</TableCell>
-                <TableCell>{a.date}</TableCell>
-                <TableCell>{a.village}</TableCell>
-                <TableCell>{a.consumption}</TableCell>
-                <TableCell>{a.voltage}</TableCell>
-                <TableCell>{statusBadge(a.status)}</TableCell>
-                <TableCell>
-                  <Button variant="outline" size="sm" onClick={() => setSelected(a)}>
-                    <Eye className="h-4 w-4 mr-2" />
-                    View
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-            {filtered.length === 0 && (
-              <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">No anomalies</TableCell></TableRow>
+            {}
+            {loading ? (
+              <TableRow><TableCell colSpan={7} className="text-center h-24">Loading anomalies...</TableCell></TableRow>
+            ) : filtered.length === 0 ? (
+              <TableRow><TableCell colSpan={7} className="text-center h-24">No anomalies found matching your filters.</TableCell></TableRow>
+            ) : (
+              filtered.map((a) => (
+                <TableRow key={a.id}>
+                  <TableCell className="font-mono">{a.rrno}</TableCell>
+                  <TableCell>{formatDate(a.record_date)}</TableCell> {/* Use record_date */}
+                  <TableCell>{a.village}</TableCell> {/* Use village (from JOIN) */}
+                  <TableCell>{a.Consumption}</TableCell> {/* Use "Consumption" */}
+                  <TableCell>{a.Voltage}</TableCell> {/* Use "Voltage" */}
+                  <TableCell>{statusBadge(a.status)}</TableCell> {/* Use status */}
+                  <TableCell>
+                    <Button variant="outline" size="sm" onClick={() => setSelected(a)}>
+                      <Eye className="h-4 w-4 mr-2" />
+                      View
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
             )}
           </TableBody>
         </Table>
@@ -189,7 +226,7 @@ export default function AnomaliesPage() {
               <FileText className="h-5 w-5" />
               Anomaly Detail - {selected.id}
             </CardTitle>
-            <CardDescription>RRNO: {selected.rrno} • {selected.village} • {selected.date}</CardDescription>
+            <CardDescription>RRNO: {selected.rrno} • {selected.village} • {formatDate(selected.record_date)}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="grid gap-4 md:grid-cols-2">
@@ -212,9 +249,9 @@ export default function AnomaliesPage() {
             </div>
 
             <div>
-              <h4 className="font-medium mb-2">Consumption Trend</h4>
+              <h4 className="font-medium mb-2">Consumption Trend (Mock Data)</h4>
               <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={mockSeries(selected.consumption)}>
+                <LineChart data={mockSeries(selected.Consumption)}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="day" />
                   <YAxis />
@@ -226,7 +263,7 @@ export default function AnomaliesPage() {
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <h4 className="font-medium mb-2">SHAP Explanation</h4>
+                <h4 className="font-medium mb-2">SHAP Explanation (Mock Data)</h4>
                 <div className="space-y-2">
                   {shap.map((s) => (
                     <div key={s.feature} className="flex items-center gap-2">
@@ -240,7 +277,7 @@ export default function AnomaliesPage() {
                 </div>
               </div>
               <div>
-                <h4 className="font-medium mb-2">Rule-based Justification</h4>
+                <h4 className="font-medium mb-2">Rule-based Justification (Mock Data)</h4>
                 <ul className="list-disc pl-5 text-sm">
                   {ruleJustification.map((r, i) => <li key={i}>{r}</li>)}
                 </ul>
@@ -248,7 +285,7 @@ export default function AnomaliesPage() {
             </div>
 
             <div className="grid gap-3 md:grid-cols-3">
-              <Button variant="outline" onClick={() => exportToCsv(`anomaly_${selected.id}.csv`, [selected])}>
+              <Button variant="outline" onClick={() => exportListCsv()}>
                 <Download className="h-4 w-4 mr-2" />
                 Export CSV
               </Button>
