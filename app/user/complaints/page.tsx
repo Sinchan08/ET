@@ -25,8 +25,9 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
-import { AlertCircle, CheckCircle, Trash2 } from "lucide-react" // <-- 1. IMPORT Trash2
+import { AlertCircle, CheckCircle, Trash2 } from "lucide-react"
 import { useAuth } from "@/components/auth/auth-provider"
+import { Skeleton } from "@/components/ui/skeleton" // <-- Import Skeleton
 
 // Define the complaint structure
 interface Complaint {
@@ -65,8 +66,11 @@ export default function ComplaintsPage() {
   }
 
   useEffect(() => {
-    fetchComplaints();
-  }, [user])
+    // Check if user is loaded before fetching
+    if (user) {
+      fetchComplaints();
+    }
+  }, [user]) // Re-run when user object is available
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,7 +111,6 @@ export default function ComplaintsPage() {
     }
   }
 
-  // --- 2. ADD THE NEW handleDelete FUNCTION ---
   const handleDelete = async (complaintId: number) => {
     if (!user) return;
 
@@ -116,7 +119,6 @@ export default function ComplaintsPage() {
     }
 
     try {
-      // This is the new, correct URL, and we no longer need the 'body'
       const response = await fetch(`/api/user/${user.id}/complaints/${complaintId}`, {
         method: 'DELETE',
       });
@@ -137,9 +139,23 @@ export default function ComplaintsPage() {
     return new Date(dateString).toLocaleDateString();
   }
 
+  const getStatusBadge = (status: 'submitted' | 'resolved') => {
+    return status === 'submitted' ? (
+      <Badge variant="destructive" className="flex items-center w-fit">
+        <AlertCircle className="mr-1 h-3 w-3" />
+        Submitted
+      </Badge>
+    ) : (
+      <Badge variant="secondary" className="flex items-center w-fit bg-green-100 text-green-800">
+        <CheckCircle className="mr-1 h-3 w-3" />
+        Resolved
+      </Badge>
+    );
+  }
+
   return (
     <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
         <Card className="lg:col-span-4">
           <CardHeader>
             <CardTitle>File a New Complaint</CardTitle>
@@ -173,6 +189,7 @@ export default function ComplaintsPage() {
             </CardFooter>
           </form>
         </Card>
+        
         <Card className="lg:col-span-3">
           <CardHeader>
             <CardTitle>My Complaint History</CardTitle>
@@ -181,40 +198,68 @@ export default function ComplaintsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                {/* --- 3. ADD "Actions" HEADER --- */}
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Subject</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow><TableCell colSpan={4} className="text-center">Loading...</TableCell></TableRow>
-                ) : complaints.length === 0 ? (
-                  <TableRow><TableCell colSpan={4} className="text-center">No complaints submitted.</TableCell></TableRow>
-                ) : (
-                  complaints.map((complaint) => (
+            
+            {/* --- THIS IS THE NEW RESPONSIVE LAYOUT --- */}
+
+            {loading && (
+              <div className="space-y-4">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            )}
+
+            {!loading && complaints.length === 0 && (
+              <p className="text-center text-muted-foreground">No complaints submitted.</p>
+            )}
+
+            {/* 1. MOBILE VIEW: List of Cards (Visible on mobile, hidden on desktop) */}
+            <div className="space-y-4 md:hidden">
+              {complaints.map((complaint) => (
+                <Card key={complaint.id} className="w-full">
+                  <CardContent className="p-4 grid gap-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">
+                        {formatDate(complaint.created_at)}
+                      </span>
+                      {getStatusBadge(complaint.status)}
+                    </div>
+                    <p className="font-semibold">{complaint.subject}</p>
+                    {complaint.status === 'submitted' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-red-500 hover:text-red-700"
+                        onClick={() => handleDelete(complaint.id)}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* 2. DESKTOP VIEW: Table (Hidden on mobile, visible on desktop) */}
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Subject</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {complaints.map((complaint) => (
                     <TableRow key={complaint.id}>
                       <TableCell>{formatDate(complaint.created_at)}</TableCell>
                       <TableCell className="font-medium">{complaint.subject}</TableCell>
                       <TableCell>
-                        {complaint.status === 'submitted' ? (
-                          <Badge variant="destructive" className="flex items-center w-fit">
-                            <AlertCircle className="mr-1 h-3 w-3" />
-                            Submitted
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="flex items-center w-fit">
-                            <CheckCircle className="mr-1 h-3 w-3" />
-                            Resolved
-                          </Badge>
-                        )}
+                        {getStatusBadge(complaint.status)}
                       </TableCell>
-                      {/* --- 4. ADD DELETE BUTTON (only if 'submitted') --- */}
                       <TableCell>
                         {complaint.status === 'submitted' && (
                           <Button
@@ -228,10 +273,11 @@ export default function ComplaintsPage() {
                         )}
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            
           </CardContent>
         </Card>
       </div>

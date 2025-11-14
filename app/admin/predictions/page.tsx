@@ -8,7 +8,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Zap, AlertCircle } from 'lucide-react'
-// --- IMPORT PAGINATION COMPONENTS ---
 import {
   Pagination,
   PaginationContent,
@@ -23,12 +22,30 @@ import {
 interface DataRecord {
   id: number;
   rrno: string;
-  village: string;
+  village: string; // This comes from the 'address' column in your users table
   record_date: string;
-  consumption: number; // Assuming this is "Consumption" from DB
-  voltage: number;     // Assuming this is "Voltage" from DB
+  Consumption: number; // Note: Capital 'C' must match the API
+  Voltage: number;     // Note: Capital 'V' must match the API
   is_anomaly: boolean;
   confidence: number;
+}
+
+// This helper builds the pagination links
+function buildPagination(currentPage: number, totalPages: number) {
+  const pageNumbers = [];
+  const maxPagesToShow = 5;
+  
+  let startPage = Math.max(1, currentPage - 2);
+  let endPage = Math.min(totalPages, currentPage + 2);
+
+  if (currentPage <= 3) {
+    endPage = Math.min(totalPages, maxPagesToShow);
+  }
+  if (currentPage > totalPages - 3) {
+    startPage = Math.max(1, totalPages - maxPagesToShow + 1);
+  }
+  
+  return { startPage, endPage };
 }
 
 export default function PredictionsPage() {
@@ -37,24 +54,22 @@ export default function PredictionsPage() {
   const [predicting, setPredicting] = useState(false)
   const { toast } = useToast()
 
-  // --- ADD PAGINATION STATE ---
+  // --- PAGINATION STATE ---
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(0)
 
-  // Function to fetch data from our new paginated GET endpoint
+  // Function to fetch data from our paginated GET endpoint
   const fetchData = async (page: number) => {
     setLoading(true);
     try {
-      // --- Fetch the specific page ---
       const response = await fetch(`/api/predictions?page=${page}`);
       if (!response.ok) {
         throw new Error('Failed to fetch data');
       }
       const data = await response.json();
       
-      // The API now returns an object { records, totalPages }
-      setData(data.records);
-      setTotalPages(data.totalPages);
+      setData(data.records || []);
+      setTotalPages(data.totalPages || 0);
       setCurrentPage(page);
 
     } catch (error: any) {
@@ -71,7 +86,7 @@ export default function PredictionsPage() {
   // Fetch data when the page loads (or when currentPage changes)
   useEffect(() => {
     fetchData(currentPage);
-  }, [currentPage]) // Re-run when currentPage changes
+  }, [currentPage, toast]) // Re-run when currentPage changes
 
   // Function to run the prediction model
   const handleRunPrediction = async () => {
@@ -86,7 +101,7 @@ export default function PredictionsPage() {
 
       toast({
         title: "Prediction Complete",
-        description: `Model processed ${result.total_records} records. ${result.anomalies_found} anomalies found. Rules breached: ${result.rules_breached}.`,
+        description: `Model processed ${result.total_records} records. ${result.anomalies_found} anomalies found.`,
       })
       
       // Refresh the data in the table (go back to page 1 to see new results)
@@ -122,78 +137,7 @@ export default function PredictionsPage() {
     }
   }
   
-  // --- FUNCTION TO RENDER PAGINATION BUTTONS ---
-  const renderPagination = () => {
-    if (totalPages <= 1) return null;
-
-    const pageNumbers = [];
-    const maxPagesToShow = 5;
-    
-    let startPage = Math.max(1, currentPage - 2);
-    let endPage = Math.min(totalPages, currentPage + 2);
-
-    if (currentPage <= 3) {
-      endPage = Math.min(totalPages, maxPagesToShow);
-    }
-    if (currentPage > totalPages - 3) {
-      startPage = Math.max(1, totalPages - maxPagesToShow + 1);
-    }
-
-    if (startPage > 1) {
-      pageNumbers.push(
-        <PaginationItem key="1">
-          <PaginationLink onClick={() => handlePageChange(1)}>1</PaginationLink>
-        </PaginationItem>
-      );
-      if (startPage > 2) {
-        pageNumbers.push(<PaginationItem key="start-ellipsis"><PaginationEllipsis /></PaginationItem>);
-      }
-    }
-
-    for (let i = startPage; i <= endPage; i++) {
-      pageNumbers.push(
-        <PaginationItem key={i}>
-          <PaginationLink 
-            isActive={i === currentPage} 
-            onClick={() => handlePageChange(i)}
-          >
-            {i}
-          </PaginationLink>
-        </PaginationItem>
-      );
-    }
-
-    if (endPage < totalPages) {
-      if (endPage < totalPages - 1) {
-        pageNumbers.push(<PaginationItem key="end-ellipsis"><PaginationEllipsis /></PaginationItem>);
-      }
-      pageNumbers.push(
-        <PaginationItem key={totalPages}>
-          <PaginationLink onClick={() => handlePageChange(totalPages)}>{totalPages}</PaginationLink>
-        </PaginationItem>
-      );
-    }
-
-    return (
-      <Pagination>
-        <PaginationContent>
-          <PaginationItem>
-            <PaginationPrevious 
-              onClick={() => handlePageChange(currentPage - 1)} 
-              className={currentPage === 1 ? 'pointer-events-none opacity-50' : ''}
-            />
-          </PaginationItem>
-          {pageNumbers}
-          <PaginationItem>
-            <PaginationNext 
-              onClick={() => handlePageChange(currentPage + 1)}
-              className={currentPage === totalPages ? 'pointer-events-none opacity-50' : ''}
-            />
-          </PaginationItem>
-        </PaginationContent>
-      </Pagination>
-    );
-  }
+  const { startPage, endPage } = buildPagination(currentPage, totalPages);
 
   return (
     <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
@@ -226,7 +170,7 @@ export default function PredictionsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>RR No.</TableHead>
-                <TableHead>Address</TableHead>
+                <TableHead>Address (Village)</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Consumption</TableHead>
                 <TableHead>Voltage</TableHead>
@@ -246,10 +190,10 @@ export default function PredictionsPage() {
                 data.map((record) => (
                   <TableRow key={record.id} className={record.is_anomaly ? 'bg-red-100 dark:bg-red-900/30' : ''}>
                     <TableCell>{record.rrno}</TableCell>
-                    <TableCell>{record.village}</TableCell> {/* Note: This is 'village' from your DB */}
+                    <TableCell>{record.village}</TableCell>
                     <TableCell>{formatDate(record.record_date)}</TableCell>
-                    <TableCell>{record.consumption}</TableCell>
-                    <TableCell>{record.voltage}</TableCell>
+                    <TableCell>{record.Consumption}</TableCell>
+                    <TableCell>{record.Voltage}</TableCell>
                     <TableCell>
                       {record.is_anomaly ? (
                         <Badge variant="destructive" className="flex items-center w-fit">
@@ -266,10 +210,51 @@ export default function PredictionsPage() {
             </TableBody>
           </Table>
           
-          {/* --- ADD THE PAGINATION CONTROLS --- */}
-          <div className="mt-4">
-            {renderPagination()}
-          </div>
+          {/* --- PAGINATION CONTROLS --- */}
+          {totalPages > 1 && (
+            <Pagination className="mt-4">
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious 
+                    onClick={() => handlePageChange(currentPage - 1)} 
+                    className={currentPage === 1 ? 'pointer-events-none opacity-50' : ''}
+                  />
+                </PaginationItem>
+                
+                {startPage > 1 && (
+                  <PaginationItem>
+                    <PaginationLink onClick={() => handlePageChange(1)}>1</PaginationLink>
+                  </PaginationItem>
+                )}
+                {startPage > 2 && <PaginationItem><PaginationEllipsis /></PaginationItem>}
+
+                {Array.from({ length: (endPage - startPage) + 1 }, (_, i) => startPage + i).map(page => (
+                  <PaginationItem key={page}>
+                    <PaginationLink 
+                      isActive={page === currentPage} 
+                      onClick={() => handlePageChange(page)}
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+
+                {endPage < totalPages - 1 && <PaginationItem><PaginationEllipsis /></PaginationItem>}
+                {endPage < totalPages && (
+                  <PaginationItem>
+                    <PaginationLink onClick={() => handlePageChange(totalPages)}>{totalPages}</PaginationLink>
+                  </PaginationItem>
+                )}
+
+                <PaginationItem>
+                  <PaginationNext 
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    className={currentPage === totalPages ? 'pointer-events-none opacity-50' : ''}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          )}
         </CardContent>
       </Card>
     </div>

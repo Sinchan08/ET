@@ -10,61 +10,65 @@ export async function GET(
   try {
     const userId = params.id;
 
-    // 1. Get the user's RRNO from their ID
-    const userQuery = await db.query('SELECT rrno FROM users WHERE id = $1', [userId]);
+    // 1. Get the user's RRNO and Name first
+    const userQuery = await db.query('SELECT rrno, name FROM users WHERE id = $1', [
+      userId,
+    ]);
     if (userQuery.rows.length === 0) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
     const rrno = userQuery.rows[0].rrno;
+    const userName = userQuery.rows[0].name;
 
-    // 2. Get statistics for the Card components
-    const statsQuery = db.query(
-      `SELECT
-         SUM("Consumption") AS total_consumption,
-         AVG("Voltage") AS avg_voltage
-       FROM data_records
-       WHERE rrno = $1`,
-      [rrno]
-    );
-
-    // 3. Get pending complaints count
-    const complaintsQuery = db.query(
-      `SELECT COUNT(*) AS pending_complaints
-       FROM complaints
-       WHERE user_id = $1 AND status = 'submitted'`,
-      [userId]
-    );
-
-    // 4. Get data for the monthly usage chart (last 6 months)
-    const chartQuery = db.query(
-      `SELECT
-         TO_CHAR(record_date, 'YYYY-MM') AS month,
-         SUM("Consumption") AS total
-       FROM data_records
-       WHERE rrno = $1
-       GROUP BY month
-       ORDER BY month DESC
-       LIMIT 6`,
-      [rrno]
-    );
-
-    // Run all queries concurrently
-    const [statsResult, complaintsResult, chartResult] = await Promise.all([
-      statsQuery,
-      complaintsQuery,
-      chartQuery,
+    // 2. Run all other database queries IN PARALLEL
+    // This is much faster than running them one-by-one
+    const [
+      totalConsumptionQuery,
+      avgVoltageQuery,
+      pendingComplaintsQuery,
+      chartDataQuery
+    ] = await Promise.all([
+      db.query(
+        'SELECT SUM("Consumption") as total_consumption FROM data_records WHERE rrno = $1',
+        [rrno]
+      ),
+      db.query(
+        'SELECT AVG("Voltage") as avg_voltage FROM data_records WHERE rrno = $1',
+        [rrno]
+      ),
+      db.query(
+        'SELECT COUNT(*) as pending_complaints FROM complaints WHERE user_id = $1 AND status = $2',
+        [userId, 'submitted']
+      ),
+      db.query(
+        `SELECT TO_CHAR(record_date, 'YYYY-MM') as month, SUM("Consumption") as total
+         FROM data_records
+         WHERE rrno = $1
+         GROUP BY month
+         ORDER BY month DESC
+         LIMIT 6`,
+        [rrno]
+      )
     ]);
 
-    const stats = statsResult.rows[0];
-    const chartData = chartResult.rows.reverse(); // Reverse to show oldest first
-    const pendingComplaints = complaintsResult.rows[0].pending_complaints;
+    // 3. Process the results from the parallel queries
+    const totalConsumption = totalConsumptionQuery.rows[0]?.total_consumption || 0;
+    const avgVoltage = avgVoltageQuery.rows[0]?.avg_voltage || 0;
+    const pendingComplaints = pendingComplaintsQuery.rows[0]?.pending_complaints || 0;
+    
+    // Format chart data
+    const chartData = chartDataQuery.rows.map(row => ({
+      ...row,
+      total: parseFloat(row.total),
+    }));
 
-    // 5. Return all data in one object
+    // 4. Return all data at once
     return NextResponse.json({
-      totalConsumption: stats.total_consumption || 0,
-      avgVoltage: parseFloat(stats.avg_voltage || 0).toFixed(2),
-      pendingComplaints: pendingComplaints,
-      chartData: chartData,
+      welcomeName: userName, // Send the user's name
+      totalConsumption: parseFloat(totalConsumption).toFixed(2),
+      avgVoltage: parseFloat(avgVoltage).toFixed(2),
+      pendingComplaints: parseInt(pendingComplaints),
+      chartData: chartData.reverse(), // Reverse to show oldest-to-newest
     });
 
   } catch (error) {

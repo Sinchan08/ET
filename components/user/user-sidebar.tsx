@@ -16,6 +16,7 @@ import { BarChart3, FileText, Zap, User, Settings, Home } from 'lucide-react'
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { SheetTitle } from "@/components/ui/sheet";
+import Image from "next/image"
 
 // 1. IMPORT THE useAuth HOOK
 import { useAuth } from "@/components/auth/auth-provider";

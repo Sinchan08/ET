@@ -2,22 +2,48 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import db from '@/lib/db';
 
-const RECORDS_PER_PAGE = 20; // Set how many records to show per page
+const RECORDS_PER_PAGE = 20;
 
-// --- THE GET FUNCTION IS UPDATED ---
+// --- THIS IS NEW: A helper function to get the *reason* ---
+// It returns a string like "Low Voltage" or "ML Prediction"
+function getAnomalyReason(
+  record: any, 
+  rules: any, 
+  mlFlagged: boolean
+): string | null {
+  
+  if (rules.enabled) {
+    const voltage = parseFloat(record.Voltage);
+    const powerFactor = parseFloat(record["Power Factor"]);
+    const consumption = parseFloat(record.Consumption);
+    const rollingAvg = parseFloat(record.rolling_avg);
+    const billing = consumption * 10; // Simple billing estimation
+
+    // Check rules in order of priority
+    if (voltage < rules.voltage_min) return "Low Voltage";
+    if (voltage > rules.voltage_max) return "High Voltage";
+    if (powerFactor < rules.power_factor_min) return "Low Power Factor";
+    if (rollingAvg > 0 && (consumption > (rollingAvg * rules.spike_multiplier))) return "Consumption Spike";
+    if (billing > rules.billing_threshold) return "High Billing";
+  }
+  
+  // If no rules were broken, but the ML model flagged it
+  if (mlFlagged) {
+    return "ML Prediction";
+  }
+
+  // If nothing flagged it, it's not an anomaly
+  return null;
+}
+
+// GET function (stays the same)
 export async function GET(request: NextRequest) {
   try {
-    // Get the page number from the URL, e.g., /api/predictions?page=1
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1', 10);
-    
-    // Calculate the offset for the SQL query
     const offset = (page - 1) * RECORDS_PER_PAGE;
 
-    // Query 1: Get the total count of all records
     const countQuery = db.query('SELECT COUNT(*) FROM data_records');
-    
-    // Query 2: Get just one page of records
     const dataQuery = db.query(
       `SELECT * FROM data_records 
        ORDER BY record_date DESC 
@@ -25,9 +51,7 @@ export async function GET(request: NextRequest) {
       [RECORDS_PER_PAGE, offset]
     );
 
-    // Run both queries in parallel
     const [countResult, dataResult] = await Promise.all([countQuery, dataQuery]);
-
     const totalRecords = parseInt(countResult.rows[0].count, 10);
     const records = dataResult.rows;
 
@@ -36,19 +60,17 @@ export async function GET(request: NextRequest) {
       totalRecords,
       totalPages: Math.ceil(totalRecords / RECORDS_PER_PAGE)
     });
-
   } catch (error) {
     console.error('API Error fetching records:', error);
     return NextResponse.json({ error: 'Failed to fetch records' }, { status: 500 });
   }
 }
 
-
-// --- THIS POST FUNCTION STAYS EXACTLY THE SAME ---
+// POST function (is UPDATED)
 export async function POST(request: Request) {
   try {
     
-    // 1. FETCH RULES FROM DATABASE
+    // 1. FETCH RULES
     const rulesResponse = await db.query('SELECT * FROM rule_settings WHERE id = 1');
     if (rulesResponse.rows.length === 0) {
       throw new Error('Rule settings not found in database.');
@@ -62,21 +84,21 @@ export async function POST(request: Request) {
       enabled: rulesResponse.rows[0].enabled,
     };
 
-    // 2. FETCH DATA TO PREDICT
+    // 2. FETCH DATA
     const { rows: dataToPredict } = await db.query(
       `SELECT 
         id, "Consumption", "Voltage", "Current", "Power Factor", 
         "Bill_to_usage_ratio", "delta_units", "rolling_avg", "rolling_min", 
         "rolling_max", "rolling_std", "interaction_billing_pf", "month_sin", "month_cos"
        FROM data_records 
-       WHERE is_anomaly = FALSE`
+       WHERE is_anomaly = FALSE OR anomaly_reason IS NULL` // <-- Get records that need checking
     );
 
     if (!dataToPredict || dataToPredict.length === 0) {
       return NextResponse.json({ error: 'No new data to predict.' }, { status: 400 });
     }
 
-    // 3. CALL ML SERVICE (Same as before)
+    // 3. CALL ML SERVICE
     const mlResponse = await fetch(`${process.env.ML_SERVICE_URL}/predict`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -85,61 +107,41 @@ export async function POST(request: Request) {
 
     if (!mlResponse.ok) {
       const errorText = await mlResponse.text();
-      console.error("ML Service Error:", errorText);
       throw new Error(`ML service failed: ${errorText}`);
     }
-
     const mlPredictions: {id: number, is_anomaly: boolean, confidence: number}[] = await mlResponse.json();
 
-    // 4. RUN RULE ENGINE
-    const ruleBreaches = new Map<number, boolean>();
-    
-    if (rules.enabled) {
-      for (const record of dataToPredict) {
-        let breach = false;
-        
-        const voltage = parseFloat(record.Voltage);
-        const powerFactor = parseFloat(record["Power Factor"]);
-        const consumption = parseFloat(record.Consumption);
-        const rollingAvg = parseFloat(record.rolling_avg);
-        const billing = consumption * 10; 
-
-        if (voltage < rules.voltage_min) breach = true;
-        if (voltage > rules.voltage_max) breach = true;
-        if (powerFactor < rules.power_factor_min) breach = true;
-        if (rollingAvg > 0 && (consumption > (rollingAvg * rules.spike_multiplier))) breach = true;
-        if (billing > rules.billing_threshold) breach = true;
-        
-        if (breach) {
-          ruleBreaches.set(record.id, true);
-        }
-      }
-    }
+    // 4. (No explicit Rule Engine step, it's combined in Step 5)
 
     // 5. COMBINE RESULTS & UPDATE DATABASE
     let anomalies_found = 0;
-    
     const mlPredictionMap = new Map(mlPredictions.map(p => [p.id, p]));
 
     const updatePromises = dataToPredict.map((record) => {
       const mlPrediction = mlPredictionMap.get(record.id);
-      
       const mlFlagged = mlPrediction?.is_anomaly || false;
       const mlConfidence = mlPrediction?.confidence || 0;
       
-      const ruleFlagged = ruleBreaches.has(record.id);
+      // --- THIS IS THE NEW LOGIC ---
+      // Get the specific reason (e.g., "Low Voltage", "ML Prediction")
+      const reason = getAnomalyReason(record, rules, mlFlagged);
 
-      const final_is_anomaly = mlFlagged || ruleFlagged;
-
+      const final_is_anomaly = (reason !== null); // It's an anomaly if there's any reason
+      
       if (final_is_anomaly) {
         anomalies_found++;
       }
       
-      const final_confidence = ruleFlagged ? 1.0 : mlConfidence;
+      // If rule-flagged, set confidence to 1.0, otherwise use ML confidence
+      const final_confidence = (reason !== null && reason !== 'ML Prediction') ? 1.0 : mlConfidence;
 
+      // --- THIS QUERY IS UPDATED ---
+      // We now save the 'reason' in the 'anomaly_reason' column
       return db.query(
-        'UPDATE data_records SET is_anomaly = $1, confidence = $2 WHERE id = $3',
-        [final_is_anomaly, final_confidence, record.id]
+        `UPDATE data_records 
+         SET is_anomaly = $1, confidence = $2, anomaly_reason = $3 
+         WHERE id = $4`,
+        [final_is_anomaly, final_confidence, reason, record.id]
       );
     });
 
@@ -150,14 +152,10 @@ export async function POST(request: Request) {
       total_records: dataToPredict.length,
       anomalies_found: anomalies_found,
       rules_applied: rules.enabled,
-      rules_breached: ruleBreaches.size
     });
 
   } catch (error: any) {
     console.error('Prediction API Error:', error);
-    if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

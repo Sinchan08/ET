@@ -1,19 +1,23 @@
 // FILE: app/admin/page.tsx
 "use client"
 
-import { useState, useEffect } from "react" // Import hooks
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertTriangle, CheckCircle, Users, Brain, PieChart as PieIcon } from 'lucide-react'
-import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from "recharts"
-import { Skeleton } from "@/components/ui/skeleton" // Import Skeleton
+import { AlertTriangle, CheckCircle, Users, Brain } from 'lucide-react'
+// --- Import Pie, Cell, and Legend ---
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from "recharts"
+import { Skeleton } from "@/components/ui/skeleton"
 
-// --- This Pie Chart data is still mock, we will connect it in the next step ---
-const anomalyTypes = [
-  { name: "Consumption Spike", value: 35, color: "#ef4444" },
-  { name: "Voltage Anomaly", value: 25, color: "#f97316" },
-  { name: "Power Factor Issue", value: 20, color: "#eab308" },
-  { name: "Billing Mismatch", value: 20, color: "#22c55e" },
-]
+// --- Define preset colors for our anomaly types ---
+const COLORS: { [key: string]: string } = {
+  "Consumption Spike": "#ef4444",
+  "High Billing": "#f97316",
+  "Low Voltage": "#eab308",
+  "High Voltage": "#f59e0b",
+  "Low Power Factor": "#84cc16",
+  "ML Prediction": "#3b82f6",
+  "default": "#6b7280" // Fallback color
+};
 
 // Define types for our fetched data
 interface StatCards {
@@ -27,13 +31,19 @@ interface MonthlyData {
   anomalies: number;
   normal: number;
 }
+// --- NEW TYPE for Pie Chart ---
+interface PieChartData {
+  name: string;
+  value: number;
+}
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState<StatCards | null>(null);
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([]);
+  const [pieChartData, setPieChartData] = useState<PieChartData[]>([]); // <-- ADDED
   const [loading, setLoading] = useState(true);
 
-  // Fetch data from our new API route
+  // Fetch data from our updated API route
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
@@ -45,9 +55,9 @@ export default function AdminDashboard() {
         const data = await response.json();
         setStats(data.stats);
         setMonthlyData(data.monthlyData);
+        setPieChartData(data.pieChartData || []); // <-- ADDED
       } catch (error) {
         console.error(error);
-        // You can add a toast notification here if you like
       } finally {
         setLoading(false);
       }
@@ -55,7 +65,6 @@ export default function AdminDashboard() {
     fetchData();
   }, []);
 
-  // Define stat card components for clean rendering
   const statCards = [
     { title: "Total Users", data: stats?.totalUsers, icon: Users, color: "text-blue-600" },
     { title: "Anomalies Detected", data: stats?.totalAnomalies, icon: AlertTriangle, color: "text-red-600" },
@@ -87,9 +96,6 @@ export default function AdminDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{stat.data}</div>
-                {/* <p className="text-xs text-muted-foreground">
-                  <span className="text-green-600">{stat.change}</span> from last month
-                </p> */}
               </CardContent>
             </Card>
           ))
@@ -112,6 +118,7 @@ export default function AdminDashboard() {
                   <XAxis dataKey="month" />
                   <YAxis />
                   <Tooltip />
+                  <Legend />
                   <Bar dataKey="normal" fill="#22c55e" name="Normal" />
                   <Bar dataKey="anomalies" fill="#ef4444" name="Anomalies" />
                 </BarChart>
@@ -122,28 +129,37 @@ export default function AdminDashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Anomaly Types Distribution (Mock Data)</CardTitle>
+            <CardTitle>Anomaly Types Distribution</CardTitle>
             <CardDescription>Breakdown of different anomaly categories</CardDescription>
           </CardHeader>
           <CardContent>
-            {/* This pie chart still uses mock data. We will connect it in the next step. */}
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={anomalyTypes}
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  dataKey="value"
-                  label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
-                >
-                  {anomalyTypes.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+            {/* --- THIS IS THE UPDATED PIE CHART --- */}
+            {loading ? (
+               <Skeleton className="h-[300px] w-full" />
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={pieChartData}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    dataKey="value" // <-- Use 'value'
+                    nameKey="name"  // <-- Use 'name'
+                    label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                  >
+                    {pieChartData.map((entry) => (
+                      <Cell 
+                        key={`cell-${entry.name}`} 
+                        fill={COLORS[entry.name] || COLORS.default} // <-- Use color map
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -161,7 +177,6 @@ function CardSkeleton() {
       </CardHeader>
       <CardContent>
         <Skeleton className="h-8 w-1/2" />
-        <Skeleton className="h-3 w-1/3 mt-2" />
       </CardContent>
     </Card>
   )

@@ -8,24 +8,30 @@ import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Download, Filter, FileText, Eye, CheckCircle2, AlertTriangle, StickyNote } from 'lucide-react'
-// Note: 'export' and 'print' functions are not in the repo, so they are commented out
-// import { exportToCsv, printElementAsPDF } from "@/lib/export" 
 import { useToast } from "@/hooks/use-toast"
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationPrevious,
+  PaginationLink,
+  PaginationNext,
+  PaginationEllipsis,
+} from "@/components/ui/pagination"
 
-// --- THIS TYPE IS NOW UPDATED ---
 type Anomaly = {
-  id: number
+  id: number // It's a number from the DB
   rrno: string
   name?: string
   village?: string
   address?: string
-  record_date: string // <-- Renamed from 'date'
-  Consumption: number // <-- Renamed from 'consumption' (and capitalized)
-  Voltage: number // <-- Renamed from 'voltage' (and capitalized)
+  record_date: string
+  Consumption: number
+  Voltage: number
   status: "theft" | "suspicious" | "normal"
   confidence: number
-  anomaly_type?: string
+  anomaly_reason: string | null
   notes?: string[]
 }
 
@@ -35,24 +41,45 @@ const mockSeries = (base = 250) =>
     consumption: Math.max(120, Math.round(base + (Math.random() - 0.5) * 120)),
   }))
 
+function buildPagination(currentPage: number, totalPages: number) {
+  const pageNumbers = [];
+  const maxPagesToShow = 5;
+  let startPage = Math.max(1, currentPage - 2);
+  let endPage = Math.min(totalPages, currentPage + 2);
+
+  if (currentPage <= 3) {
+    endPage = Math.min(totalPages, maxPagesToShow);
+  }
+  if (currentPage > totalPages - 3) {
+    startPage = Math.max(1, totalPages - maxPagesToShow + 1);
+  }
+  return { startPage, endPage };
+}
+
 export default function AnomaliesPage() {
   const { toast } = useToast()
   const [list, setList] = useState<Anomaly[]>([])
-  const [loading, setLoading] = useState(true); // <-- Added loading state
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all")
   const [selected, setSelected] = useState<Anomaly | null>(null)
   const [note, setNote] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(0)
+  const [totalRecords, setTotalRecords] = useState(0)
 
-  // --- THIS FETCH FUNCTION IS UPDATED ---
-  const fetchAnomalies = async () => {
+  const fetchAnomalies = async (page: number) => {
     setLoading(true);
+    setSelected(null); 
     try {
-      const res = await fetch("/api/admin/anomalies")
+      const res = await fetch(`/api/admin/anomalies?page=${page}`)
       if (!res.ok) {
         throw new Error("Failed to fetch anomalies");
       }
       const data = await res.json()
       setList(data.anomalies || [])
+      setTotalPages(data.totalPages || 0);
+      setTotalRecords(data.totalRecords || 0);
+      setCurrentPage(page);
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
@@ -61,10 +88,10 @@ export default function AnomaliesPage() {
   }
 
   useEffect(() => {
-    fetchAnomalies();
-  }, []) // Fetch on page load
+    fetchAnomalies(currentPage);
+  }, [currentPage, toast]) // Added toast dependency
 
-  const filtered = useMemo(
+  const filteredList = useMemo(
     () => list.filter((a) => filter === "all" || a.status === filter),
     [list, filter]
   )
@@ -80,12 +107,10 @@ export default function AnomaliesPage() {
 
   const addNote = async () => {
     if (!selected || !note.trim()) return
-    // This feature is not fully implemented in the API, so we just show a toast
     toast({ title: "Note added (simulated)", description: note });
     setNote("");
   }
 
-  // --- THIS FUNCTION IS NOW UPDATED ---
   const markFalsePositive = async () => {
     if (!selected) return
     try {
@@ -94,49 +119,31 @@ export default function AnomaliesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "update-status", id: selected.id, status: "normal" }),
       })
-      
       if (!res.ok) {
         throw new Error("Failed to update status");
       }
-      
-      const data = await res.json()
-      
-      // Update the list in the UI
-      setList((prev) => prev.map((x) => (x.id === selected.id ? { ...x, ...data.anomaly, status: 'normal', is_anomaly: false } : x)))
-      setSelected(null) // Close the detail view
-      
+      setSelected(null)
       toast({ title: "Marked as false positive" })
-      
-      // Refresh the list from the API
-      fetchAnomalies();
-
+      fetchAnomalies(currentPage);
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   }
 
-  // --- Mocked export functions since lib/export.ts is not present ---
-  const exportPdf = () => {
-    toast({ title: "PDF Export (Simulated)", description: "This would print the report." });
-    // printElementAsPDF("anomaly-detail") 
-  }
+  const exportPdf = () => toast({ title: "PDF Export (Simulated)" });
+  const exportListCsv = () => toast({ title: "CSV Export (Simulated)" });
 
-  const exportListCsv = () => {
-    toast({ title: "CSV Export (Simulated)", description: "This would download a CSV." });
-    // exportToCsv("anomalies.csv", filtered)
-  }
+  const ruleJustification = useMemo(() => {
+    if (!selected) return [];
+    if (selected.anomaly_reason) {
+      return [selected.anomaly_reason];
+    }
+    return ["No specific reason logged."];
+  }, [selected])
 
   const shap = [
     { feature: "consumption_spike", impact: +0.35 },
     { feature: "low_voltage", impact: +0.22 },
-    { feature: "power_factor", impact: +0.10 },
-    { feature: "billing_mismatch", impact: +0.08 },
-  ]
-
-  const ruleJustification = [
-    "Consumption exceeded 2.0x rolling average",
-    "Voltage below 200V on multiple consecutive days",
-    "Power factor below 0.7 threshold",
   ]
   
   const formatDate = (dateString: string) => {
@@ -147,12 +154,23 @@ export default function AnomaliesPage() {
     });
   }
 
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+    }
+  }
+
+  const { startPage, endPage } = buildPagination(currentPage, totalPages);
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Anomaly Reports</h1>
-          <p className="text-muted-foreground">Investigate detected anomalies, add notes and export</p>
+          <p className="text-muted-foreground">
+            Investigating {totalRecords} total anomalies. 
+            Page {currentPage} of {totalPages}.
+          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={exportListCsv}>
@@ -168,13 +186,14 @@ export default function AnomaliesPage() {
             <Filter className="h-5 w-5" />
             Filters
           </CardTitle>
-          <CardDescription>Filter by status</CardDescription>
+          <CardDescription>
+            Filter by status (filtering only applies to the current page).
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           <Button variant={filter === "all" ? "default" : "outline"} onClick={() => setFilter("all")}>All ({list.length})</Button>
           <Button variant={filter === "suspicious" ? "default" : "outline"} onClick={() => setFilter("suspicious")}>Suspicious ({list.filter(a => a.status === 'suspicious').length})</Button>
           <Button variant={filter === "theft" ? "default" : "outline"} onClick={() => setFilter("theft")}>Theft ({list.filter(a => a.status === 'theft').length})</Button>
-          {/* We hide the 'Normal' filter as this page is for anomalies */}
         </CardContent>
       </Card>
 
@@ -186,26 +205,28 @@ export default function AnomaliesPage() {
               <TableHead>Date</TableHead>
               <TableHead>Village</TableHead>
               <TableHead>Consumption</TableHead>
-              <TableHead>Voltage</TableHead>
+              <TableHead>Reason</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Action</TableHead>
             </TableRow>
           </TableHeader>
+          {/* --- WHITESPACE IS REMOVED HERE --- */}
           <TableBody>
-            {}
             {loading ? (
               <TableRow><TableCell colSpan={7} className="text-center h-24">Loading anomalies...</TableCell></TableRow>
-            ) : filtered.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="text-center h-24">No anomalies found matching your filters.</TableCell></TableRow>
+            ) : filteredList.length === 0 ? (
+              <TableRow><TableCell colSpan={7} className="text-center h-24">No anomalies found on this page.</TableCell></TableRow>
             ) : (
-              filtered.map((a) => (
+              filteredList.map((a) => (
                 <TableRow key={a.id}>
                   <TableCell className="font-mono">{a.rrno}</TableCell>
-                  <TableCell>{formatDate(a.record_date)}</TableCell> {/* Use record_date */}
-                  <TableCell>{a.village}</TableCell> {/* Use village (from JOIN) */}
-                  <TableCell>{a.Consumption}</TableCell> {/* Use "Consumption" */}
-                  <TableCell>{a.Voltage}</TableCell> {/* Use "Voltage" */}
-                  <TableCell>{statusBadge(a.status)}</TableCell> {/* Use status */}
+                  <TableCell>{formatDate(a.record_date)}</TableCell>
+                  <TableCell>{a.village}</TableCell>
+                  <TableCell>{a.Consumption}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{a.anomaly_reason || 'N/A'}</Badge>
+                  </TableCell>
+                  <TableCell>{statusBadge(a.status)}</TableCell>
                   <TableCell>
                     <Button variant="outline" size="sm" onClick={() => setSelected(a)}>
                       <Eye className="h-4 w-4 mr-2" />
@@ -219,12 +240,59 @@ export default function AnomaliesPage() {
         </Table>
       </div>
 
+      {/* --- PAGINATION CONTROLS --- */}
+      {totalPages > 1 && (
+        <Pagination>
+          <PaginationContent>
+            <PaginationItem>
+              <PaginationPrevious 
+                onClick={() => handlePageChange(currentPage - 1)} 
+                className={currentPage === 1 ? 'pointer-events-none opacity-50' : ''}
+              />
+            </PaginationItem>
+            
+            {startPage > 1 && (
+              <PaginationItem>
+                <PaginationLink onClick={() => handlePageChange(1)}>1</PaginationLink>
+              </PaginationItem>
+            )}
+            {startPage > 2 && <PaginationItem><PaginationEllipsis /></PaginationItem>}
+
+            {Array.from({ length: (endPage - startPage) + 1 }, (_, i) => startPage + i).map(page => (
+              <PaginationItem key={page}>
+                <PaginationLink 
+                  isActive={page === currentPage} 
+                  onClick={() => handlePageChange(page)}
+                >
+                  {page}
+                </PaginationLink>
+              </PaginationItem>
+            ))}
+
+            {endPage < totalPages - 1 && <PaginationItem><PaginationEllipsis /></PaginationItem>}
+            {endPage < totalPages && (
+              <PaginationItem>
+                <PaginationLink onClick={() => handlePageChange(totalPages)}>{totalPages}</PaginationLink>
+              </PaginationItem>
+            )}
+
+            <PaginationItem>
+              <PaginationNext 
+                onClick={() => handlePageChange(currentPage + 1)}
+                className={currentPage === totalPages ? 'pointer-events-none opacity-50' : ''}
+              />
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
+      )}
+
+      {/* --- Detail View (Modal) --- */}
       {selected && (
-        <Card id="anomaly-detail" className="mt-6">
+        <Card id="anomaly-detail" className="mt-6 border-2 border-primary">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
-              Anomaly Detail - {selected.id}
+              Anomaly Detail - ID: {selected.id}
             </CardTitle>
             <CardDescription>RRNO: {selected.rrno} • {selected.village} • {formatDate(selected.record_date)}</CardDescription>
           </CardHeader>
@@ -277,7 +345,7 @@ export default function AnomaliesPage() {
                 </div>
               </div>
               <div>
-                <h4 className="font-medium mb-2">Rule-based Justification (Mock Data)</h4>
+                <h4 className="font-medium mb-2">Justification (Real Data)</h4>
                 <ul className="list-disc pl-5 text-sm">
                   {ruleJustification.map((r, i) => <li key={i}>{r}</li>)}
                 </ul>
@@ -308,14 +376,6 @@ export default function AnomaliesPage() {
                 <div className="flex items-start">
                   <Button onClick={addNote}>Add Note</Button>
                 </div>
-              </div>
-              <div className="text-sm space-y-1">
-                {(selected.notes || []).map((n, i) => (
-                  <div key={i} className="p-2 rounded border">{n}</div>
-                ))}
-                {(!selected.notes || selected.notes.length === 0) && (
-                  <div className="text-muted-foreground text-sm">No notes yet</div>
-                )}
               </div>
             </div>
           </CardContent>
