@@ -1,33 +1,22 @@
-// FILE: app/admin/complaints/page.tsx
 "use client"
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
-import { Check, Trash2, ListChecks } from 'lucide-react' // <-- Added Trash2
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog" // <-- Added Alert Dialog
+import { AlertCircle, CheckCircle, CheckSquare, RefreshCw } from 'lucide-react'
 
 interface Complaint {
   id: number;
-  user_id: number;
   subject: string;
   description: string;
   status: 'submitted' | 'resolved';
   created_at: string;
-  name: string;
+  user_name: string;
+  user_email: string;
+  rrno: string;
 }
 
 export default function AdminComplaintsPage() {
@@ -38,12 +27,20 @@ export default function AdminComplaintsPage() {
   const fetchComplaints = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/complaints');
-      if (!response.ok) throw new Error('Failed to fetch complaints');
+      const response = await fetch('/api/complaints', { cache: 'no-store' }); // Ensure fresh data
+      if (!response.ok) {
+        throw new Error('Failed to fetch complaints');
+      }
       const data = await response.json();
-      setComplaints(data.complaints || []);
+      console.log("Fetched complaints data:", data); // Debug log to browser console
+      setComplaints(data);
     } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" })
+      console.error("Error fetching:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Could not fetch complaints.",
+        variant: "destructive",
+      })
     } finally {
       setLoading(false);
     }
@@ -51,129 +48,141 @@ export default function AdminComplaintsPage() {
 
   useEffect(() => {
     fetchComplaints();
-  }, [toast]);
+  }, [])
 
-  const handleMarkResolved = async (id: number) => {
+  const handleResolve = async (complaintId: number) => {
     try {
-      const response = await fetch(`/api/complaints/${id}`, {
+      const response = await fetch(`/api/complaints/${complaintId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'resolved' }),
       });
 
-      if (!response.ok) throw new Error('Failed to update status');
+      if (!response.ok) {
+        throw new Error('Failed to resolve complaint');
+      }
 
-      toast({ title: "Status Updated", description: "Complaint marked as resolved." })
-      fetchComplaints();
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" })
-    }
-  }
-
-  // --- NEW DELETE FUNCTION ---
-  const handleDelete = async (id: number) => {
-    try {
-      const response = await fetch(`/api/complaints/${id}`, {
-        method: 'DELETE',
+      toast({
+        title: "Success",
+        description: "Complaint marked as resolved.",
       });
 
-      if (!response.ok) throw new Error('Failed to delete complaint');
+      fetchComplaints(); 
 
-      toast({ title: "Deleted", description: "Complaint removed successfully." })
-      fetchComplaints(); // Refresh list
     } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" })
+      toast({
+        title: "Error",
+        description: error.message || "Could not resolve complaint.",
+        variant: "destructive",
+      })
     }
   }
 
   const formatDate = (dateString: string) => {
+    if (!dateString) return "N/A";
     return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric', month: 'short', day: 'numeric'
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
     });
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex-1 space-y-4 p-8 pt-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Complaints</h2>
+          <p className="text-muted-foreground">Manage and resolve user issues.</p>
+        </div>
+        <Button variant="outline" onClick={fetchComplaints}>
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
+      </div>
+
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ListChecks className="h-5 w-5" />
-            Manage Complaints
-          </CardTitle>
-          <CardDescription>Review and resolve user-submitted complaints</CardDescription>
+          <CardTitle>All Complaints</CardTitle>
+          <CardDescription>
+            A list of all complaints submitted by users.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>User Name</TableHead>
-                <TableHead>Subject</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow><TableCell colSpan={6} className="text-center h-24">Loading...</TableCell></TableRow>
-              ) : complaints.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center h-24">No complaints found.</TableCell></TableRow>
-              ) : (
-                complaints.map((complaint) => (
-                  <TableRow key={complaint.id}>
-                    <TableCell>{complaint.name}</TableCell>
-                    <TableCell>{complaint.subject}</TableCell>
-                    <TableCell className="max-w-xs truncate" title={complaint.description}>
-                      {complaint.description}
-                    </TableCell>
-                    <TableCell>{formatDate(complaint.created_at)}</TableCell>
-                    <TableCell>
-                      <Badge variant={complaint.status === 'resolved' ? 'default' : 'secondary'}>
-                        {complaint.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        {complaint.status === 'submitted' && (
-                          <Button variant="outline" size="sm" onClick={() => handleMarkResolved(complaint.id)}>
-                            <Check className="h-4 w-4" />
-                          </Button>
-                        )}
-                        
-                        {/* --- DELETE BUTTON --- */}
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="destructive" size="sm">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Delete Complaint?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This action cannot be undone. This will permanently delete the complaint about "{complaint.subject}".
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction 
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                onClick={() => handleDelete(complaint.id)}
-                              >
-                                Delete
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-
-                      </div>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Status</TableHead>
+                  <TableHead>User Details</TableHead>
+                  <TableHead>Issue</TableHead>
+                  <TableHead>Submitted On</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="h-24 text-center">
+                      Loading complaints...
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : complaints.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                      No complaints found in the database.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  complaints.map((complaint) => (
+                    <TableRow key={complaint.id}>
+                      <TableCell>
+                        {complaint.status === 'submitted' ? (
+                          <Badge variant="destructive" className="flex items-center w-fit gap-1">
+                            <AlertCircle className="h-3 w-3" />
+                            Open
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="flex items-center w-fit gap-1 bg-green-100 text-green-800 hover:bg-green-100">
+                            <CheckCircle className="h-3 w-3" />
+                            Resolved
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{complaint.user_name || "Unknown User"}</span>
+                          <span className="text-xs text-muted-foreground">{complaint.user_email}</span>
+                          <span className="text-xs text-muted-foreground font-mono">RR: {complaint.rrno}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col max-w-[300px]">
+                          <span className="font-medium truncate" title={complaint.subject}>{complaint.subject}</span>
+                          <span className="text-xs text-muted-foreground truncate" title={complaint.description}>{complaint.description}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {formatDate(complaint.created_at)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {complaint.status === 'submitted' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => handleResolve(complaint.id)}
+                          >
+                            <CheckSquare className="mr-2 h-4 w-4 text-green-600" />
+                            Resolve
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
     </div>
